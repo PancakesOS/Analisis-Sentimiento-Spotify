@@ -1,0 +1,12 @@
+# Secretos y datos (los CSV de Spotify no se redistribuyen)
+.env
+data/
+logs/
+
+# Python
+.venv/
+__pycache__/
+
+# Sistema y editor
+.DS_Store
+.vscode/
