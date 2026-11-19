@@ -13,7 +13,7 @@
 **Del proyecto**
 
 - **Propuesta (Tarea 5):** https://drive.google.com/file/d/1jd5Sd-24zK124XBClo_7VXIMtxAUMhgc/view
-- **Repositorio:** https://github.com/PancakesOS/pulso-musica-mx. Por ahora tiene la estructura inicial, este RFC y el diagrama; el código se construye a partir del 20 de noviembre.
+- **Repositorio:** https://github.com/PancakesOS/Analisis-Sentimiento-Spotify. Por ahora tiene la estructura inicial, este RFC y el diagrama; el código se construye a partir del 20 de noviembre.
 - **Plataforma de la Tarea 4**, de donde reuso el consumer de Kafka y el processor con checkpoint: https://github.com/PancakesOS/Tarea-3.-BD-Spotify
 
 **Documentación de las fuentes de datos**
@@ -374,7 +374,7 @@ cada hora:
 ### e) Estructura del repo
 
 ```text
-pulso-musica-mx/
+Analisis-Sentimiento-Spotify/
 ├── docker-compose.yml         # postgres, kafka, producer, consumer, batch (cron), dashboard
 ├── Dockerfile                 # imagen de Python con uv, cron y el modelo de sentimiento ya descargado
 ├── pyproject.toml             # dependencias (psycopg, confluent-kafka, pysentimiento, streamlit, scikit-learn)
