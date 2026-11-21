@@ -67,7 +67,7 @@ Al arrancar, el contenedor `batch`:
 | `batch` (cron) | `chart_loader` | Cada 15 minutos |
 | | `video_finder` | Cada hora, a los :05; sin pendientes no gasta cuota |
 | | `retention` | Cada hora, a los :40 |
-| | `stats_snapshot` | Cada hora, a los :50; sobrescribe la foto del día |
+| | `stats_snapshot` | Revisa cada 10 minutos y toma la foto si la última del día tiene más de 55 minutos; sobrescribe la del día |
 | `comments_producer` | Comentarios nuevos del top 50 vigente; los demás videos, una vez al día; carga histórica con tope de cuota | Ciclo cada hora |
 | `consumer` | Kafka → `raw/comments/AAAA-MM-DD.log` | Continuo |
 
@@ -182,7 +182,7 @@ Estos detalles no cambian el diseño del RFC; lo completan. Los voy a pasar al R
 
 - **Los trabajos de YouTube corren cada hora, no una vez al día.** El sistema corre en mi Mac, que se duerme. Un trabajo programado a las 23:50 perdería el día completo si a esa hora estaba dormida. En cambio, sin nada pendiente, una corrida cada hora no gasta cuota:
     - `video_finder`, a los :05;
-    - `stats_snapshot`, a los :50. Sobrescribe la foto del día, así que queda la última que se tomó. Cuesta 2 unidades por corrida;
+    - `stats_snapshot` revisa cada 10 minutos y toma la foto solo si la última del día tiene más de 55 minutos: a lo más una por hora, unas 2 unidades cada una. Sobrescribe la foto del día, así que queda la última que se tomó. Si la Mac pasa dormida casi todo el día, basta con que esté despierta unos 10 minutos para que ese día tenga su foto;
     - `retention`, a los :40.
 - **`video_watermark` guarda también el avance de la carga histórica** (`backfill_page_token`, `backfill_done`), la última lectura (`last_polled_at`) y si el video tiene los comentarios desactivados (`disabled_reason`). Así la carga histórica sigue al día siguiente donde se quedó, sin volver a gastar cuota.
 - **Alcance de la carga histórica de comentarios:**

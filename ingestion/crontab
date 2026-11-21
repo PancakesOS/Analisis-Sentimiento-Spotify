@@ -17,5 +17,6 @@
 # Cada hora, a los 40 minutos: borra el texto de comentarios de 29 días o más.
 40 * * * * cd /app && /app/.venv/bin/python -m transform.retention > /dev/null 2>> /app/logs/cron_errors.log
 
-# Cada hora, a los 50 minutos: foto de estadísticas de los videos (sobrescribe la del día).
-50 * * * * cd /app && /app/.venv/bin/python -m ingestion.stats_snapshot > /dev/null 2>> /app/logs/cron_errors.log
+# Cada 10 minutos: foto de estadísticas de los videos si la última del día tiene más de 55 minutos
+# (a lo más una por hora; sobrescribe la del día). Así basta poco tiempo despierta para no perder el día.
+*/10 * * * * cd /app && /app/.venv/bin/python -m ingestion.stats_snapshot > /dev/null 2>> /app/logs/cron_errors.log

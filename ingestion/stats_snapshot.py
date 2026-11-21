@@ -1,12 +1,13 @@
 """stats_snapshot: foto de vistas, likes y comentarios de cada video seguido.
 
 Es el único dato que no se puede recuperar después: la API solo da el
-total de hoy, no el de un día que ya pasó. Por eso corre CADA HORA (a los
-50 minutos) y no solo a las 23:50 como decía el RFC: cada corrida
-sobrescribe la foto del día (llave date_key + song_key), así que queda la
-última que se tomó. Si la Mac está dormida a las 23:50, el día no se
-pierde: queda la foto de la última hora en que estuvo despierta. Cuesta
-1 unidad por cada 50 videos, unas 2 a 4 unidades por corrida.
+total de hoy, no el de un día que ya pasó. Por eso no corre solo a las
+23:50 como decía el RFC: cron lo revisa cada 10 minutos y toma la foto si
+la última del día tiene más de 55 minutos (a lo más una por hora). Cada
+foto sobrescribe la del día (llave date_key + song_key), así que queda la
+última que se tomó. Si la Mac pasa dormida casi todo el día, basta con
+que esté despierta unos 10 minutos para que ese día tenga su foto. Cuesta
+1 unidad por cada 50 videos, unas 2 a 4 unidades por foto.
 
   1. Toma los youtube_video_id de dim_song (puede haber dos canciones con
      el mismo video).
@@ -20,7 +21,7 @@ import os
 import sys
 import time
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import psycopg
@@ -33,6 +34,7 @@ JOB = "stats_snapshot"
 STATS_RAW = RAW_DIR / "stats"
 MEXICO = ZoneInfo("America/Mexico_City")
 BATCH = 50
+MIN_GAP_MINUTES = 55   # corre cada 10 minutos, pero toma la foto a lo más una vez por hora
 
 UPSERT_SQL = """
     INSERT INTO fact_video_daily (date_key, song_key, video_id, view_count, like_count,
@@ -65,6 +67,11 @@ def run(log, pg: dict) -> int:
             videos = list(songs_by_video)
             log.info("inicio; fecha=%s videos=%d", now.date(), len(videos))
             if not videos:
+                return 0
+            last = conn.execute("SELECT max(captured_at) FROM fact_video_daily WHERE date_key = %s",
+                                (date_key,)).fetchone()[0]
+            if last is not None and now - last < timedelta(minutes=MIN_GAP_MINUTES):
+                stats["omitida"] = 1
                 return 0
             yt = YouTubeClient(pg)
             raw_dir = STATS_RAW / now.date().isoformat()
@@ -117,9 +124,11 @@ def run(log, pg: dict) -> int:
         if yt:
             yt.close()
         log.info("fin; duracion=%.1fs videos_con_datos=%d filas=%d no_disponibles=%d unidades=%d "
-                 "cuota_dia=%s/%d errores=%d", time.monotonic() - started, stats["videos"],
+                 "cuota_dia=%s/%d errores=%d%s", time.monotonic() - started, stats["videos"],
                  stats["filas"], stats["no_disponibles"], units,
-                 day if day is not None else "-", DAILY_QUOTA, stats["errores"])
+                 day if day is not None else "-", DAILY_QUOTA, stats["errores"],
+                 f" (omitida: ya hay foto de hace menos de {MIN_GAP_MINUTES} min)"
+                 if stats["omitida"] else "")
     return stats["errores"]
 
 
