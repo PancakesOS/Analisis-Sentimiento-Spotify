@@ -1,0 +1,8 @@
+[project]
+name = "pulso-emocional"
+version = "0.1.0"
+description = "Pulso emocional de la música en México: chart de Spotify, letras de LRCLIB y comentarios de YouTube"
+requires-python = ">=3.13"
+dependencies = [
+    "psycopg[binary]>=3.3.8",
+]

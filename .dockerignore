@@ -1,0 +1,12 @@
+# A la imagen solo entra lo que se necesita para correr; todo lo demás
+# (secretos, datos, documentos) se queda fuera.
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!common/
+!ingestion/
+!transform/
+!scripts/
+!tests/
+**/__pycache__

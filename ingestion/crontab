@@ -1,0 +1,8 @@
+# minuto hora día-del-mes mes día-de-la-semana  comando
+#
+# Horarios en hora de México (zona del contenedor). Cada trabajo escribe su
+# propio log en /app/logs/<trabajo>.log; aquí se descarta su salida normal y
+# solo se guarda lo que falle antes de abrir el log (por ejemplo, un import).
+
+# Cada 15 minutos: carga los CSV del chart nuevos de data/landing/charts/.
+*/15 * * * * cd /app && /app/.venv/bin/python -m ingestion.chart_loader > /dev/null 2>> /app/logs/cron_errors.log

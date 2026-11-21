@@ -1,0 +1,49 @@
+name: pulso                 # Nombre fijo del proyecto: los volúmenes se llaman igual sin importar la carpeta del clon
+
+services:
+  postgres:                 # La base: control, modelo estrella y (después) las vistas de las preguntas
+    image: postgres:18
+    environment:            # Usuario, contraseña y base a crear, tomados del .env (si falta uno, compose se detiene con el mensaje)
+      POSTGRES_USER: ${POSTGRES_USER:?Falta POSTGRES_USER en .env (copia .env.example)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env (copia .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:?Falta POSTGRES_DB en .env (copia .env.example)}
+      TZ: America/Mexico_City                 # Las fechas con zona se muestran en hora de México
+      PGTZ: America/Mexico_City
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro   # 01_control.sql y 02_star.sql: solo corren con el volumen vacío
+      - pgdata:/var/lib/postgresql            # Los datos sobreviven a docker compose down (sin -v)
+    # Sin "ports": nada fuera de Docker necesita la base, y así no choca con
+    # otro PostgreSQL en el puerto 5432. Para consultarla:
+    #   docker compose exec postgres psql -U admin -d pulso
+    healthcheck:            # Lista cuando acepta conexiones por TCP (durante la inicialización solo escucha por socket)
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  batch:                    # cron: los trabajos batch (por ahora chart_loader cada 15 minutos)
+    build: .
+    command: ["sh", "/app/ingestion/entrypoint_batch.sh"]
+    init: true              # Un init mínimo como PID 1: el contenedor se detiene de inmediato con docker compose stop
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: America/Mexico_City
+    volumes:
+      - ./data/landing:/app/data/landing:ro   # Carpeta de entrada: los CSV del chart que descargo a mano (solo lectura)
+      - raw:/app/data/raw                     # Zona cruda: copias de los archivos tal como llegaron
+      - state:/app/data/state                 # Candados y checkpoints de los trabajos
+      - ./logs:/app/logs                      # Un .log por trabajo, visible desde la Mac
+    depends_on:
+      postgres:
+        condition: service_healthy            # Espera a que el esquema exista antes de la primera carga
+    restart: unless-stopped
+
+volumes:                    # Docker los conserva hasta docker compose down -v
+  pgdata:
+  raw:
+  state:
