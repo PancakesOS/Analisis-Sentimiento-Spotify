@@ -3,6 +3,19 @@
 # Horarios en hora de México (zona del contenedor). Cada trabajo escribe su
 # propio log en /app/logs/<trabajo>.log; aquí se descarta su salida normal y
 # solo se guarda lo que falle antes de abrir el log (por ejemplo, un import).
+#
+# Los trabajos corren cada hora aunque el RFC diga "diario": si no hay nada
+# pendiente no hacen nada (ni gastan cuota), y así no se pierde un día
+# completo si la Mac estaba dormida justo a la hora programada.
 
 # Cada 15 minutos: carga los CSV del chart nuevos de data/landing/charts/.
 */15 * * * * cd /app && /app/.venv/bin/python -m ingestion.chart_loader > /dev/null 2>> /app/logs/cron_errors.log
+
+# Cada hora, a los 5 minutos: busca el video oficial de las canciones del top 50 que no lo tienen.
+5 * * * * cd /app && /app/.venv/bin/python -m ingestion.video_finder > /dev/null 2>> /app/logs/cron_errors.log
+
+# Cada hora, a los 40 minutos: borra el texto de comentarios de 29 días o más.
+40 * * * * cd /app && /app/.venv/bin/python -m transform.retention > /dev/null 2>> /app/logs/cron_errors.log
+
+# Cada hora, a los 50 minutos: foto de estadísticas de los videos (sobrescribe la del día).
+50 * * * * cd /app && /app/.venv/bin/python -m ingestion.stats_snapshot > /dev/null 2>> /app/logs/cron_errors.log

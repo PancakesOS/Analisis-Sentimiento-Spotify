@@ -71,14 +71,27 @@ CREATE TABLE IF NOT EXISTS etl_quota_usage (
 
 
 -- ---------------------------------------------------------------------
--- video_watermark: fecha del comentario más reciente que ya se publicó
--- en Kafka para cada video. El poller pide comentarios del más nuevo al
--- más viejo y se detiene al llegar a esta marca. Solo avanza después de
--- kafka.flush(): entrega al menos una vez.
+-- video_watermark: hasta dónde leyó comments_producer cada video.
+--   * last_published_at: fecha del comentario más reciente que ya se
+--     publicó en Kafka. El poller pide comentarios del más nuevo al más
+--     viejo y se detiene al llegar a esta marca. Solo avanza después de
+--     kafka.flush(): entrega al menos una vez.
+--   * Carga histórica: la primera vez se leen también los comentarios
+--     viejos, página por página, hasta el inicio de la historia del
+--     chart. backfill_page_token guarda la página siguiente, para seguir
+--     al otro día si se acaba la cuota; backfill_done marca el final.
+--   * last_polled_at decide cuándo toca la siguiente lectura (cada hora
+--     para el top 50 vigente, una vez al día para los demás videos).
+--   * disabled_reason: el video tiene los comentarios desactivados o ya
+--     no existe; se deja de leer.
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS video_watermark (
-    video_id          text        NOT NULL,
-    last_published_at timestamptz NOT NULL,
-    updated_at        timestamptz NOT NULL DEFAULT now(),
+    video_id            text        NOT NULL,
+    last_published_at   timestamptz,
+    backfill_page_token text,
+    backfill_done       boolean     NOT NULL DEFAULT false,
+    last_polled_at      timestamptz,
+    disabled_reason     text,
+    updated_at          timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT video_watermark_pkey PRIMARY KEY (video_id)
 );

@@ -23,13 +23,19 @@ de letras y videos, y la cuota (RFC, sección 7 f).
      No hay artistas sin canciones.
   6. Cada URI de alta de dim_song está en song_uri apuntando a su canción,
      y no queda ninguna canción partida por un cambio de URI.
+  7. YouTube: ningún día pasa del tope de 9,000 unidades de cuota; ningún
+     mensaje del crudo de comentarios trae campos del autor; ningún
+     archivo del crudo tiene más de 30 días. Muestra la cobertura de
+     videos del top 50 vigente.
 
 Termina con OK o con la lista de diferencias (y código de salida 1).
 """
 
 import hashlib
+import json
 import sys
 import time
+from datetime import date, timedelta
 
 import psycopg
 
@@ -147,6 +153,56 @@ def check_uris(conn) -> list[str]:
     return diffs
 
 
+AUTHOR_FIELDS = {"authorDisplayName", "authorChannelId", "authorChannelUrl", "authorProfileImageUrl"}
+COMMENT_FIELDS = {"comment_id", "video_id", "text_original", "like_count", "reply_count",
+                  "published_at", "updated_at", "fetched_at", "source"}
+
+
+def check_youtube(conn, log) -> list[str]:
+    """Cuota, cobertura de videos y crudo de comentarios (privacidad y retención)."""
+    diffs = []
+    for day, units, calls in conn.execute(
+            "SELECT quota_date, sum(units), sum(calls) FROM etl_quota_usage "
+            "GROUP BY 1 ORDER BY 1 DESC LIMIT 7"):
+        log.info("cuota %s (hora del Pacífico): %d unidades en %d llamadas", day, units, calls)
+        if units > 9_000:
+            diffs.append(f"la cuota del {day} pasó del tope de 9,000: {units}")
+
+    top, with_video, review = conn.execute(
+        """
+        SELECT count(*), count(s.youtube_video_id), count(*) FILTER (WHERE s.video_match = 'review')
+        FROM fact_chart_week f JOIN dim_song s USING (song_key)
+        WHERE f.week_key = (SELECT max(week_key) FROM fact_chart_week) AND f.rank <= 50
+        """).fetchone()
+    log.info("top 50 vigente: %d de %d con video (%d marcados para revisión)", with_video, top, review)
+
+    files = sorted((RAW_DIR / "comments").glob("*.log")) if (RAW_DIR / "comments").is_dir() else []
+    lines = invalid = 0
+    ids = set()
+    oldest_allowed = (date.today() - timedelta(days=30)).isoformat()
+    for path in files:
+        if path.stem < oldest_allowed:   # el nombre es AAAA-MM-DD: el día de llegada
+            diffs.append(f"crudo de comentarios {path.name} con más de 30 días sin borrar")
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                lines += 1
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    invalid += 1
+                    continue
+                extra = set(msg) - COMMENT_FIELDS
+                if extra & AUTHOR_FIELDS or any(k.lower().startswith("author") for k in msg):
+                    diffs.append(f"{path.name}: un mensaje trae campos del autor ({sorted(extra)})")
+                    break
+                ids.add(msg.get("comment_id"))
+    log.info("crudo de comentarios: %d archivos, %d líneas, %d comentarios únicos, %d líneas no JSON",
+             len(files), lines, len(ids), invalid)
+    return diffs
+
+
 def main() -> None:
     log = setup_logging(JOB)
     started = time.monotonic()
@@ -179,6 +235,7 @@ def main() -> None:
                 ("4. Canciones y first_seen_week", check_songs(conn)),
                 ("5. Puente canción–artista", check_bridge(conn)),
                 ("6. URI de Spotify por canción", check_uris(conn)),
+                ("7. YouTube: cuota y crudo de comentarios sin datos del autor", check_youtube(conn, log)),
             ]
     except psycopg.OperationalError as e:
         log.error("No se pudo conectar a PostgreSQL: %s", e)

@@ -67,6 +67,22 @@ def normalize_title(title: str) -> str:
     return _EDGE_PUNCT.sub("", normalize_text(text))
 
 
+def search_title(title: str) -> str:
+    """Título para buscar en YouTube: sin "(from …)" ni invitados, con acentos.
+
+    A diferencia de normalize_title, conserva " - Remix" o " - En Vivo",
+    porque el video de un remix es otro video.
+    """
+    text = _TITLE_EXTRA_PAREN.sub("", title)
+    text = _TITLE_FEAT_TAIL.sub("", text)
+    return _EDGE_PUNCT.sub("", _SPACES.sub(" ", text).strip())
+
+
+def compact(text: str) -> str:
+    """Solo letras y números, normalizados: "Karol G" → "karolg", "KarolGVEVO" → "karolgvevo"."""
+    return re.sub(r"[\W_]+", "", normalize_text(text))
+
+
 def normalize_label(source: str | None) -> str | None:
     """Sello comparable, para agrupar las variantes que trae la columna source.
 
