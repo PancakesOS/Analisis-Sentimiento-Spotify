@@ -118,6 +118,33 @@ El dashboard abre la sesión de PostgreSQL en modo de solo lectura y guarda cada
 - **Salida:** métricas y coeficientes en `model_run`, el modelo en `data/state/models/` (volumen `state`) y la probabilidad de subir de cada canción de la semana más reciente en `model_prediction`.
 - **Reproducible:** `random_state` fijo. Si los datos no cambiaron (md5 de los datos), no vuelve a entrenar.
 
+## Criterios de éxito
+
+Los de la sección 10 del RFC, más el criterio de negocio que se agregó al responder los comentarios. Medidos el 24 de noviembre de 2026; la tabla se actualiza conforme llegan semanas nuevas. Si un criterio no se cumple, queda así, con su causa: no se ajusta nada para que salga.
+
+| Criterio | Cómo se mide | Meta | Valor | ¿Cumple? |
+|---|---|---|---|---|
+| Cobertura de letras | Canciones con letra encontrada ÷ canciones del chart | ≥ 85 % | 99.2 % (658 de 663) | Sí |
+| Video oficial correcto | Revisión manual de 20 canciones del top 50 al azar (`scripts.review_videos --revisar`) | ≥ 90 % | Pendiente de la revisión. La regla eligió sola 75 de 78 videos; 3 quedaron para revisión | Pendiente |
+| Latencia de comentarios | p95 de `ingested_at − published_at`, comentarios del top 50 publicados el 24 de noviembre | ≤ 2 h | 18.2 h (mediana 6.6 h) | No, por ahora |
+| Sin duplicados | `count(*)` contra `count(DISTINCT comment_id)` y conciliación de `verify.py` | 0 diferencias | 0 (741,376 filas, 741,376 ids) | Sí |
+| Idempotencia | `chart_loader`, `lyrics_processor`, `aggregate_week` y `train` dos veces seguidas; conteos y md5 de `song_week_reaction` | 0 diferencias | 0; la segunda corrida no cambia nada | Sí |
+| Cuota | Máximo diario de `etl_quota_usage` | < 9,000 en carga histórica; ~1,500 en operación | 8,437 (21 nov, carga histórica); 1,385 (23 nov) | Sí |
+| Carga del chart | Duración en `chart_loader.log` | < 10 s por archivo | 54 archivos en 4.35 s (0.08 s cada uno) | Sí |
+| Calidad del sentimiento | Coincidencia con 100 comentarios etiquetados a mano (`scripts.label_sentiment`) | ≥ 70 % | Pendiente del etiquetado | Pendiente |
+| Velocidad del sentimiento | Comentarios por segundo en `comments_processor.log` (sentimiento y emoción) | 10,000 en < 15 min | 35 a 54 por segundo en corridas grandes: 10,000 en 3 a 5 min | Sí |
+| Modelo predictivo | AUC en las 3 semanas más recientes, contra el baseline «sube si subió la semana pasada» | AUC ≥ 0.60 y mayor que el baseline | 0.62 contra 0.68 del baseline | No: pasa el 0.60, pero no le gana al baseline |
+| Preguntas respondidas | Vista y página del dashboard por pregunta | 7 de 7 | 7 de 7 | Sí |
+| Retención | Comentarios con más de 30 días de ingeridos en la base o el crudo | 0 | 0 (`retention` corre cada hora) | Sí |
+| Reproducibilidad | De `git clone` al dashboard con datos, en un clon limpio | ≤ 30 min, sin la carga histórica | Se mide en la prueba final desde un clon limpio | Pendiente |
+| Criterio de negocio | De las 6 candidatas que propone el resumen cada semana, cuántas suben la semana siguiente, contra la tasa del top 50 (`v_business_check`) | Mayor que la tasa base | 38.1 % contra 33.2 % (53 semanas); en las últimas 12, 33.3 % contra 34 % | Sí en el total; no en las últimas 12 semanas |
+
+Notas:
+
+- **Latencia.** Hasta el 24 de noviembre, la carga histórica de «SWIM» (BTS) hacía que cada ciclo del poller durara más de 2 horas y que `comments_processor` pasara horas ocupado. Desde que las canciones en inglés quedaron fuera, un ciclo dura unos 20 segundos. A eso se suma que la Mac se duerme: mientras está dormida no se lee nada. Se vuelve a medir con los días siguientes.
+- **Modelo.** Con 1,436 ejemplos de entrenamiento todavía no supera a la regla simple. Lo dejo documentado tal cual: el RFC lo planteó como un extra y el dashboard no depende de él.
+- **Criterio de negocio.** Las candidatas suben algo más que el promedio en el año completo, pero en las últimas 12 semanas no. Cuadra con la página 2: la reacción del público por sí sola es una señal débil para anticipar subidas.
+
 ## Verificación
 
 ```bash

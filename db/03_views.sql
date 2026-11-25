@@ -26,7 +26,7 @@
 -- Se pueden volver a crear sin perder datos: solo son consultas.
 -- =====================================================================
 
-DROP VIEW IF EXISTS v_p7, v_p6, v_p5, v_p4, v_p3, v_p2, v_p1,
+DROP VIEW IF EXISTS v_business_check, v_p7, v_p6, v_p5, v_p4, v_p3, v_p2, v_p1,
     v_song_longevity, v_model_dataset, v_video_week, v_song, v_label, v_chart_week CASCADE;
 
 
@@ -218,6 +218,32 @@ JOIN v_song s ON s.song_key = f.song_key
 JOIN song_week_reaction r ON r.week_key = f.week_key AND r.song_key = f.song_key
 WHERE f.rank <= 50
   AND r.n_comments >= 20;
+
+
+-- =====================================================================
+-- Criterio de negocio (RFC, sección 10): de las canciones que el resumen
+-- del dashboard propone promover cada semana (las 6 primeras de v_p1,
+-- con el mismo orden), ¿cuántas subieron la semana siguiente, contra la
+-- tasa de todo el top 50? Solo semanas con la semana siguiente cargada.
+-- =====================================================================
+CREATE VIEW v_business_check AS
+WITH picks AS (
+    SELECT week_key, song_key,
+           row_number() OVER (PARTITION BY week_key
+                              ORDER BY pct_pos DESC, avg_score DESC, rank) AS pick
+    FROM v_p1
+)
+SELECT d.week_key,
+       d.week_end,
+       count(*) FILTER (WHERE p.pick <= 6)                   AS candidates,
+       count(*) FILTER (WHERE p.pick <= 6 AND d.went_up)     AS candidates_up,
+       count(*)                                              AS top50,
+       count(*) FILTER (WHERE d.went_up)                     AS top50_up
+FROM v_model_dataset d
+LEFT JOIN picks p ON p.week_key = d.week_key AND p.song_key = d.song_key
+WHERE d.went_up IS NOT NULL
+GROUP BY d.week_key, d.week_end
+HAVING count(*) FILTER (WHERE p.pick <= 6) > 0;
 
 
 -- =====================================================================

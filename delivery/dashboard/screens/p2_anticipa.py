@@ -66,6 +66,48 @@ else:
         layers = layers + rule
     ui.chart(layers, height=340)
 
+ui.section("¿Las candidatas del resumen sí subieron?",
+           "Criterio de negocio del RFC. Cada semana, el resumen propone las 6 canciones con la "
+           "reacción más positiva. Aquí se ve cuántas quedaron en un mejor lugar la semana "
+           "siguiente, contra lo que subió el top 50 completo.")
+check = data.query("SELECT * FROM v_business_check ORDER BY week_end")
+if check.empty:
+    ui.empty("Todavía no hay semanas para evaluar",
+             "Hace falta una semana con candidatas y la semana siguiente ya cargada.")
+else:
+    cand, cand_up = int(check["candidates"].sum()), int(check["candidates_up"].sum())
+    top, top_up = int(check["top50"].sum()), int(check["top50_up"].sum())
+    recent = check.tail(12)
+    r_cand = recent["candidates_up"].sum() / recent["candidates"].sum()
+    r_base = recent["top50_up"].sum() / recent["top50"].sum()
+    ui.kpi_row([
+        ui.kpi("Candidatas que subieron", cand_up / cand * 100, decimals=1, suffix=" %",
+               note=f"{cand_up} de {cand} en {len(check)} semanas"),
+        ui.kpi("Tasa base del top 50", top_up / top * 100, decimals=1, suffix=" %",
+               note=f"{top_up} de {top} canciones-semana"),
+        ui.kpi("Últimas 12 semanas", r_cand * 100, decimals=1, suffix=" %",
+               note=f"contra {r_base:.0%} del top 50"),
+    ])
+    weekly = check.assign(
+        Candidatas=check["candidates_up"] / check["candidates"],
+        **{"Top 50": check["top50_up"] / check["top50"]},
+    ).melt(id_vars=["week_end", "candidates", "candidates_up"],
+           value_vars=["Candidatas", "Top 50"], var_name="grupo", value_name="share")
+    weekly["detail"] = weekly["candidates_up"].astype(str) + " de " + weekly["candidates"].astype(str)
+    st.html(ui.legend({"Candidatas": ui.TOKENS["accent"], "Top 50": ui.TOKENS["neu"]}))
+    lines = alt.Chart(weekly).mark_line(strokeWidth=2,
+                                        point=alt.OverlayMarkDef(size=36)).encode(
+        x=alt.X("week_end:T", title=None, axis=alt.Axis(format="%d %b", labelAngle=0)),
+        y=alt.Y("share:Q", title="Subieron la semana siguiente", axis=alt.Axis(format="%"),
+                scale=alt.Scale(domain=[0, 1])),
+        color=alt.Color("grupo:N", legend=None, scale=alt.Scale(
+            domain=["Candidatas", "Top 50"], range=[ui.TOKENS["accent"], ui.TOKENS["neu"]])),
+        tooltip=[alt.Tooltip("week_end:T", title="Semana que termina", format="%d %b %Y"),
+                 alt.Tooltip("grupo:N", title="Grupo"),
+                 alt.Tooltip("share:Q", title="Subieron", format=".0%"),
+                 alt.Tooltip("detail:N", title="Candidatas que subieron")])
+    ui.chart(lines, height=280)
+
 ui.section("Lo que dice el modelo", "Una regresión logística que estima si una canción del top 50 "
            "sube la semana siguiente, evaluada en las 3 semanas más recientes que no vio al "
            "entrenar.")

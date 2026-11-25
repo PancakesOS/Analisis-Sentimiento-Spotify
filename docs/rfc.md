@@ -4,7 +4,7 @@
 
 **Autor:** Francisco Ortega (proyecto individual)
 
-**Versión:** 1.0, 19 de noviembre de 2026 · **Estado:** en revisión (comentarios hasta el 24 de noviembre)
+**Versión:** 1.1, 24 de noviembre de 2026 · **Estado:** revisado; los comentarios de la revisión están respondidos e incorporados (ver «Historial de cambios», al final de la sección 1)
 
 ---
 
@@ -13,7 +13,7 @@
 **Del proyecto**
 
 - **Propuesta (Tarea 5):** https://drive.google.com/file/d/1jd5Sd-24zK124XBClo_7VXIMtxAUMhgc/view
-- **Repositorio:** https://github.com/PancakesOS/Analisis-Sentimiento-Spotify. Por ahora tiene la estructura inicial, este RFC y el diagrama; el código se construye a partir del 20 de noviembre.
+- **Repositorio:** https://github.com/PancakesOS/Analisis-Sentimiento-Spotify. Tiene el código completo; el README explica cómo correrlo y registra las decisiones que se tomaron al construir.
 - **Plataforma de la Tarea 4**, de donde reuso el consumer de Kafka y el processor con checkpoint: https://github.com/PancakesOS/Tarea-3.-BD-Spotify
 
 **Documentación de las fuentes de datos**
@@ -38,6 +38,19 @@
 - Streamlit: https://docs.streamlit.io
 - Regresión logística en scikit-learn: https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
 
+**Historial de cambios**
+
+- **Versión 1.0 (19 de noviembre de 2026):** versión enviada a revisión.
+- **Versión 1.1 (24 de noviembre de 2026):** incorpora la revisión de Joel Pérez (20 comentarios, todos respondidos en su hilo) y lo aprendido al construir:
+  - el objetivo se enfoca en qué canciones del top usar en marketing y con qué tono (sección 2);
+  - los trabajos batch corren cada hora en lugar de una vez al día (secciones 3, 6 y 7 d);
+  - las canciones con letra en inglés quedan fuera del análisis de comentarios, porque sus videos juntan comentarios de todo el mundo (secciones 7 b y 9);
+  - el modelo de datos documenta la llave sustituta `song_key`, la tabla `song_uri`, los artistas con coma en el nombre y las tablas del modelo y de la validación manual (sección 7 c);
+  - la observabilidad dice cuánto se tarda en detectar una falla, y el dashboard avisa cuando falta descargar el chart (sección 7 f);
+  - se agregan limitaciones (comentarios repetidos de una misma persona, sentimiento contra emoción, letras en dos idiomas, público global) y se aclara cómo comparar resultados entre instalaciones (sección 9);
+  - se agrega un criterio de éxito de negocio y qué pasa si un criterio no se cumple (sección 10);
+  - el plan se ajusta a la fecha de entrega, el lunes 7 de diciembre (sección 9).
+
 ---
 
 ## 2. Objetivo (*Objective*)
@@ -50,7 +63,7 @@ Voy a construir un flujo de datos de principio a fin para la coordinadora de mar
 | Qué dice la letra | LRCLIB |
 | Cómo reacciona el público | Comentarios del video oficial en YouTube |
 
-Sobre las letras y los comentarios calcula el sentimiento y la emoción. Con eso, un dashboard y un modelo simple le ayudan a decidir qué canciones promover y con qué tono.
+Sobre las letras y los comentarios calcula el sentimiento y la emoción. Con eso, un dashboard y un modelo simple le ayudan a decidir qué canciones del top usar en sus campañas de marketing (playlists, anuncios, contenido), cuáles están por subir y con qué tono comunicar cada una.
 
 ---
 
@@ -58,9 +71,9 @@ Sobre las letras y los comentarios calcula el sentimiento y la emoción. Con eso
 
 Al final del proyecto, el sistema:
 
-1. **Chart.** Carga sin duplicados las 12 semanas de historia del chart semanal de México y cada semana nueva que se deje en la carpeta de entrada.
+1. **Chart.** Carga sin duplicados al menos 12 semanas de historia del chart semanal de México (se cargaron 54) y cada semana nueva que se deje en la carpeta de entrada.
 2. **Letras.** Tiene la letra y su sentimiento para al menos el 85 % de las canciones distintas que aparecen en el chart.
-3. **Comentarios.** Recibe por Kafka, cada hora, los comentarios nuevos del video oficial de cada canción del top 50 vigente. Un comentario publicado aparece en el dashboard en 2 horas o menos.
+3. **Comentarios.** Recibe por Kafka, cada hora, los comentarios nuevos del video oficial de cada canción del top 50 vigente. Un comentario publicado aparece en el dashboard en 2 horas o menos mientras la Mac está encendida. Todo el sistema revisa cada hora, así que una canción o un comentario nuevos no esperan a un horario fijo del día.
 4. **Estadísticas.** Guarda una foto diaria de las vistas, likes y número de comentarios de cada video seguido.
 5. **Preguntas de negocio.** Responde las 7 preguntas de Laura (sección 7 b) con consultas sobre el modelo estrella, una vista SQL por pregunta.
 6. **Dashboard.** Muestra cada una de las 7 respuestas en un dashboard que Laura abre en el navegador.
@@ -95,6 +108,8 @@ Al final del proyecto, el sistema:
 
 **Su decisión:** *"¿Qué canciones promuevo esta semana y con qué tono?"*
 
+Las canciones del chart ya son éxitos; la decisión de Laura no es si una canción funciona, sino a cuáles de las que ya están arriba les pone presupuesto, cuáles están por subir y con qué tono arma cada campaña.
+
 **Por qué hoy no puede:**
 
 - **El chart no dice qué transmite una canción.** Dice cuánto se escucha, pero no qué transmite la letra ni cómo reacciona la gente.
@@ -125,7 +140,9 @@ Al final del proyecto, el sistema:
 | Semántica de entrega de Kafka | kafka.apache.org/documentation | Entrega al menos una vez: el offset se confirma después de escribir. Los duplicados se eliminan en la base con `comment_id` como llave primaria. |
 | Mi plataforma de la Tarea 4 | Repo enlazado arriba | Reuso el consumer con `store_offsets` después de escribir y el processor con checkpoint por byte, que ya validé de principio a fin. Eso baja el riesgo en un proyecto individual de 4 semanas. |
 
-### c) Estado actual (18 de noviembre)
+### c) Estado actual (18 de noviembre; actualizado el 24)
+
+**Al 24 de noviembre** todas las etapas funcionan de principio a fin y están en el repositorio: 54 semanas del chart, 658 de 663 canciones con letra, 741,376 comentarios analizados, las 7 vistas, el dashboard y el modelo. Los valores medidos están en la sección 10. Lo que sigue es lo que había el 18 de noviembre.
 
 **Ya probado o existente**
 
@@ -154,17 +171,17 @@ El sistema tiene cinco piezas, todas en contenedores de un mismo `docker-compose
 
 | Pieza | Qué hace | Cada cuánto |
 |---|---|---|
-| **Ingesta batch** (cron) | Carga los CSV del chart que aparecen en la carpeta de entrada, pide las letras de canciones nuevas a LRCLIB, busca el video oficial de cada canción del top 50 y toma la foto diaria de estadísticas | Diario y cada 15 minutos |
+| **Ingesta batch** (cron) | Carga los CSV del chart que aparecen en la carpeta de entrada, pide las letras de canciones nuevas a LRCLIB, busca el video oficial de cada canción del top 50 y toma la foto diaria de estadísticas | Cada 15 minutos (chart), cada hora (letras y videos) y cada 10 minutos (revisión de la foto del día) |
 | **Ingesta streaming** (producer + Kafka + consumer) | Un *poller* pide cada hora los comentarios nuevos y los publica en el tópico `youtube_comments`. El consumer los escribe en la zona cruda. | Continuo |
 | **Zona cruda** (volumen de Docker) | Guarda los archivos tal como llegan: CSV, JSON y `.log` | — |
 | **Transformación** (cron + PostgreSQL) | Limpia, empareja canción–letra–video, quita duplicados, calcula el sentimiento y carga el modelo estrella | Cada hora |
-| **Entrega** | Un dashboard en Streamlit lee vistas SQL; un modelo de regresión logística se reentrena cada semana | Bajo demanda y semanal |
+| **Entrega** | Un dashboard en Streamlit lee vistas SQL; un modelo de regresión logística se reentrena cuando cambian sus datos | Siempre encendido; el modelo revisa cada hora |
 
 **Cómo fluyen los datos:**
 
 1. El chart es la fuente maestra. Cuando entra una canción nueva:
    - se crea en `dim_song`;
-   - al día siguiente el sistema busca su letra;
+   - en la siguiente hora el sistema busca su letra;
    - si está en el top 50, busca su video.
 2. Desde ese momento, el *poller* sigue los comentarios del video.
 3. Los comentarios se analizan apenas llegan, y su reacción se agrega por canción y semana.
@@ -178,9 +195,9 @@ El sistema tiene cinco piezas, todas en contenedores de un mismo `docker-compose
 
 | Fuente | Qué es | Formato | Cómo se obtiene | Cada cuánto | Cuántos datos |
 |---|---|---|---|---|---|
-| Spotify Charts | Top 200 semanal de México (viernes a jueves) | CSV: `rank, uri, artist_names, track_name, source, peak_rank, previous_rank, weeks_on_chart, streams` | Descarga manual con el botón oficial a `data/landing/charts/` | 1 archivo por semana | 200 filas (~25 KB); 12 semanas de historia = 2,400 filas |
+| Spotify Charts | Top 200 semanal de México (viernes a jueves) | CSV: `rank, uri, artist_names, track_name, source, peak_rank, previous_rank, weeks_on_chart, streams` | Descarga manual con el botón oficial a `data/landing/charts/` | 1 archivo por semana | 200 filas (~25 KB); se cargaron 54 semanas = 10,799 filas |
 | LRCLIB | Letras de canciones | JSON: `id, trackName, artistName, albumName, duration, instrumental, plainLyrics, syncedLyrics…` | `GET https://lrclib.net/api/search?track_name=…&artist_name=…`, sin key | Una vez por canción nueva | ~400–500 canciones al inicio, después ~10–30 por semana; 2 a 20 versiones por búsqueda |
-| YouTube: comentarios | Comentarios principales del video oficial | JSON: `commentThreads` (`id, videoId, textOriginal, likeCount, publishedAt, totalReplyCount`) | `commentThreads.list`, ordenados por fecha, 100 por página, con API key | Cada hora (top 50 vigente); diario (resto de videos seguidos) | El video de "Suzuki" juntó 1,142 comentarios en 5 semanas; estimo decenas de miles en total |
+| YouTube: comentarios | Comentarios principales del video oficial | JSON: `commentThreads` (`id, videoId, textOriginal, likeCount, publishedAt, totalReplyCount`) | `commentThreads.list`, ordenados por fecha, 100 por página, con API key | Cada hora (top 50 vigente); diario (resto de videos seguidos) | Se juntaron 741,376; el 73 % era de un solo video global («SWIM» de BTS), que quedó fuera por la regla de idioma (sección 7 b) |
 | YouTube: estadísticas | Vistas, likes y número de comentarios de cada video | JSON: `videos` (`statistics.viewCount, likeCount, commentCount`) | `videos.list`, hasta 50 videos por llamada | Una vez al día | 1 fila por video y día; ~120 videos |
 | YouTube: búsqueda | El video oficial de cada canción | JSON: `search` (`videoId, channelTitle, title`) | `search.list` | Una vez por canción que entra al top 50 | ~120 búsquedas en la historia; después ~5–10 por semana |
 
@@ -189,6 +206,10 @@ El sistema tiene cinco piezas, todas en contenedores de un mismo `docker-compose
 La semana de cada comentario es la **semana del chart** (viernes a jueves) que contiene su fecha en hora de México (`America/Mexico_City`).
 
 En los ejemplos, los datos del chart son reales, de la semana del 12 de noviembre. **Los valores de sentimiento y reacción son ilustrativos**, porque todavía no se calculan.
+
+**Qué comentarios cuentan.** Solo los de canciones con la letra en español. Las canciones con letra en inglés (BTS, Taylor Swift, villancicos) quedan fuera de las preguntas de letras y también de las de comentarios: sus videos juntan comentarios de todo el mundo, en inglés y coreano, que el modelo en español no entiende y que no representan al público de México. Una canción del top sin video oficial (ni audio oficial del canal del artista o del sello) queda sin reacción: no se toma un video de fans, y el dashboard la muestra como «sin reacción medible».
+
+**Sentimiento y emoción se muestran por separado.** Un «me hizo llorar» en una canción triste puede salir negativo aunque sea un elogio. Por eso el dashboard enseña la emoción dominante (tristeza no es rechazo) junto al sentimiento, y la calidad del sentimiento se mide contra 100 comentarios etiquetados a mano (sección 10).
 
 **P1. "¿Qué canciones del top 50 de esta semana tienen la reacción más positiva del público?"**
 
@@ -274,15 +295,18 @@ Aquí las columnas de canciones y % de streams son reales (semana del 12 de novi
 | `fact_video_daily` | Un video en un día (*snapshot* periódico) | `view_count`, `like_count`, `comment_count`, acumulados al momento de la foto | (`date_key`, `song_key`) |
 | `song_week_reaction` | Una canción en una semana (agregado) | `n_comments`, `pct_pos`, `pct_neu`, `pct_neg`, `avg_score`, `dominant_emotion` | (`week_key`, `song_key`) |
 
-Columnas descriptivas de `fact_comment`: `song_key`, `video_id`, `date_key`, `published_at`, `ingested_at`, `text_original`, `sentiment`, `emotion` y `model_version`. **No guarda ningún dato del autor.**
+Columnas descriptivas de `fact_comment`: `song_key`, `video_id`, `date_key`, `published_at`, `ingested_at`, `text_original`, `sentiment`, `emotion`, `model_version` y `discarded` (comentario de un video que resultó no ser el oficial, o de una canción con letra en inglés). **No guarda ningún dato del autor.** `song_week_reaction` guarda además `last_ingested_at`, para saber qué parejas canción–semana recalcular sin un archivo de estado.
+
+**`song_key` es una llave sustituta** que asigna PostgreSQL al cargar (identity), así que en otra instalación la misma canción puede tener otro número. La llave natural es la URI de Spotify, y es la que hay que usar para comparar resultados entre instalaciones. Spotify a veces le cambia la URI a una canción que ya está en el chart, así que una canción puede tener varias URI (tabla `song_uri`).
 
 **Dimensiones**
 
 | Tabla | Columnas |
 |---|---|
-| `dim_song` | `song_key`, `spotify_uri` (llave natural, única), `track_name`, `track_name_norm`, `main_artist_key`, `label` (de `source`), `youtube_video_id`, `video_match` (`auto` o `manual`), `lyrics_status` (`found`, `not_found` o `instrumental`), `lrclib_id`, `lyrics_language`, `lyrics_sentiment`, `lyrics_p_pos`, `lyrics_p_neu`, `lyrics_p_neg`, `lyrics_emotion`, `model_version`, `first_seen_week`, `updated_at` |
+| `dim_song` | `song_key`, `spotify_uri` (la primera URI vista), `track_name`, `track_name_norm`, `main_artist_key`, `label` (de `source`), `label_norm`, `youtube_video_id`, `video_match` (`auto`, `review` o `manual`), `video_checked_at`, `lyrics_status` (`found`, `not_found` o `instrumental`), `lyrics_checked_at`, `lrclib_id`, `lyrics_language`, `lyrics_sentiment`, `lyrics_p_pos`, `lyrics_p_neu`, `lyrics_p_neg`, `lyrics_emotion`, `model_version`, `first_seen_week`, `updated_at` |
+| `song_uri` | `spotify_uri` (única), `song_key`: todas las URI con que aparece cada canción |
 | `dim_artist` | `artist_key`, `artist_name`, `artist_name_norm` (única) |
-| `song_artist` (puente) | `song_key`, `artist_key`, `artist_order` (1 = artista principal) |
+| `song_artist` (puente) | `song_key`, `artist_key`, `artist_order` (1 = artista principal). Los artistas se separan por la coma de `artist_names`, salvo una lista de nombres que llevan coma («Tyler, The Creator», «Earth, Wind & Fire»), que no se parten |
 | `dim_date` | `date_key` (AAAAMMDD), `date`, `chart_week_end` (el jueves de su semana), `month`, `year` |
 
 **Tablas de control**, que no forman parte de la estrella:
@@ -291,7 +315,11 @@ Columnas descriptivas de `fact_comment`: `song_key`, `video_id`, `date_key`, `pu
 |---|---|
 | `etl_loaded_file` | Nombre, sha256 y filas de cada CSV cargado |
 | `etl_quota_usage` | Unidades de cuota gastadas por día |
-| `video_watermark` | Fecha del comentario más reciente ya leído de cada video |
+| `video_watermark` | Fecha del comentario más reciente ya leído de cada video, avance de la carga histórica y si el video tiene los comentarios desactivados |
+
+**Tablas de resultados**, que tampoco son parte de la estrella: `model_run` y `model_prediction` (métricas, coeficientes y probabilidad de subir de cada canción) y `sentiment_label` y `video_check` (la validación manual de la sección 10; `sentiment_label` guarda el id del comentario y las etiquetas, nunca el texto).
+
+**Idioma de la letra (`lyrics_language`).** Se decide por la mayoría de palabras comunes de cada idioma. Una canción con spanglish que es mayormente en español cuenta como español; una mitad y mitad puede caer de cualquier lado (sección 9).
 
 **¿Qué pasa cuando cambia una columna de una dimensión?** En todos los casos se sobrescribe (SCD tipo 1) y se actualiza `updated_at`:
 
@@ -305,8 +333,8 @@ Columnas descriptivas de `fact_comment`: `song_key`, `video_id`, `date_key`, `pu
 
 **Retención de 30 días** (exigida por las políticas de YouTube):
 
-- Un trabajo diario **borra** de `fact_comment` las filas con `ingested_at` de más de 30 días. Para entonces, su semana ya quedó agregada en `song_week_reaction`, que es lo que usan las preguntas.
-- Los archivos crudos de comentarios se escriben por día (`comments/AAAA-MM-DD.log`) y se borran a los 30 días.
+- Un trabajo que corre cada hora **borra** de `fact_comment` las filas con `ingested_at` de más de 29 días. Para entonces, su semana ya quedó agregada en `song_week_reaction`, que es lo que usan las preguntas.
+- Los archivos crudos de comentarios se escriben por día (`comments/AAAA-MM-DD.log`) y se borran a los 29 días, así que ningún comentario llega a los 30.
 - `fact_video_daily` sí se conserva, porque las estadísticas tienen un plazo de retención mayor.
 
 ### d) Cada etapa del flujo
@@ -315,18 +343,18 @@ Todas las etapas están escritas en Python 3.13, con `uv` para las dependencias,
 
 | Etapa | Qué hace | Herramienta | Cada cuánto | Si falla a la mitad | Si se corre dos veces |
 |---|---|---|---|---|---|
-| `chart_loader` | Busca CSV nuevos en la carpeta de entrada, valida el encabezado y las 200 filas, los copia a la zona cruda y carga `dim_song`, `dim_artist`, `song_artist` y `fact_chart_week` | Python + psycopg, cron | Cada 15 minutos | Todo el archivo se carga en **una transacción**: o queda completo o no queda nada, y la siguiente corrida lo vuelve a intentar | El sha256 del archivo ya está en `etl_loaded_file` y lo salta. Si es otro archivo de la misma semana, reemplaza esa semana (DELETE + INSERT en una transacción). |
-| `lyrics_fetcher` | Para cada canción sin `lyrics_status`, busca en LRCLIB y guarda la respuesta completa en `raw/lyrics/<uri>.json` | Python, cron | Diario, 03:00 | Cada canción es independiente. El JSON se escribe en un archivo temporal y se renombra, así que nunca queda a medias; las canciones que faltaron se procesan en la siguiente corrida. | Solo procesa canciones sin estado, o `not_found` de hace más de 7 días |
-| `video_finder` | Para cada canción del top 50 sin video: hace `search.list` y elige el resultado cuyo canal coincide con el artista o con el sello (`source`); si ninguno coincide, toma el primero y lo marca para revisión | Python, cron | Diario, 04:00 | Cada canción se guarda al terminar. Si se acaba la cuota, se detiene y sigue al día siguiente. | Solo busca canciones sin `youtube_video_id`, así que no gasta cuota de más |
-| `comments_producer` | Pide los comentarios de cada video, del más nuevo al más viejo, hasta llegar a la marca de agua del video. Quita los campos del autor y publica cada comentario en Kafka (`youtube_comments`, con el `videoId` como llave). | Python + confluent-kafka; servicio que se repite cada hora | Cada hora (top 50 vigente); una vez al día (el resto) | La marca de agua **solo avanza después de `flush()`**. Si falla, vuelve a pedir esa página y los duplicados se eliminan por `comment_id`. | Con la marca de agua al día, una segunda corrida no encuentra comentarios nuevos y no publica nada |
+| `chart_loader` | Busca CSV nuevos en la carpeta de entrada, valida el encabezado exacto y las 200 filas, los copia a la zona cruda y carga `dim_song`, `dim_artist`, `song_artist` y `fact_chart_week`. Si Spotify cambia una columna, el archivo queda como `rejected` con el motivo, sale un ERROR en el log y el dashboard sigue con la última semana buena | Python + psycopg, cron | Cada 15 minutos | Todo el archivo se carga en **una transacción**: o queda completo o no queda nada, y la siguiente corrida lo vuelve a intentar | El sha256 del archivo ya está en `etl_loaded_file` y lo salta. Si es otro archivo de la misma semana, reemplaza esa semana (DELETE + INSERT en una transacción). |
+| `lyrics_fetcher` | Para cada canción sin `lyrics_status`, busca en LRCLIB y guarda la respuesta completa en `raw/lyrics/<uri>.json` | Python, cron | Cada hora, a los :25 | Cada canción es independiente. El JSON se escribe en un archivo temporal y se renombra, así que nunca queda a medias; las canciones que faltaron se procesan en la siguiente corrida. | Solo procesa canciones sin estado, o `not_found` de hace más de 7 días |
+| `video_finder` | Para cada canción del top 50 sin video: hace `search.list` y elige el resultado cuyo canal coincide con el artista o con el sello (`source`); si ninguno coincide, toma el primero y lo marca para revisión | Python, cron | Cada hora, a los :05 | Cada canción se guarda al terminar. Si se acaba la cuota, se detiene y sigue al día siguiente. | Solo busca canciones sin `youtube_video_id`, así que no gasta cuota de más |
+| `comments_producer` | Pide los comentarios de cada video, del más nuevo al más viejo, hasta llegar a la marca de agua del video. Arma cada mensaje con una lista blanca de campos (nunca los del autor) y lo publica en Kafka (`youtube_comments`, con el `videoId` como llave). No lee los videos de canciones con letra en inglés. | Python + confluent-kafka; servicio que se repite cada hora | Cada hora (top 50 vigente); una vez al día (el resto) | La marca de agua **solo avanza después de `flush()`**. Si falla, vuelve a pedir esa página y los duplicados se eliminan por `comment_id`. | Con la marca de agua al día, una segunda corrida no encuentra comentarios nuevos y no publica nada |
 | `consumer` | Lee el tópico y agrega cada mensaje a `raw/comments/AAAA-MM-DD.log` | El de la Tarea 4 | Continuo | El offset se guarda **después** de escribir la línea (al menos una vez). Si muere, relee desde el último offset confirmado. | Puede escribir una línea dos veces; el processor la descarta por `comment_id`. |
-| `stats_snapshot` | Hace `videos.list` en lotes de 50 videos y carga `fact_video_daily` | Python, cron | Diario, 23:50 hora de México | Upsert en una transacción por lote | La llave (`date_key`, `song_key`) hace que la segunda corrida sobrescriba la foto del mismo día |
+| `stats_snapshot` | Hace `videos.list` en lotes de 50 videos y carga `fact_video_daily` | Python, cron | Revisa cada 10 minutos y toma la foto si la última del día tiene más de 55 minutos | Upsert en una transacción por lote | La llave (`date_key`, `song_key`) hace que la segunda corrida sobrescriba la foto del mismo día |
 | `comments_processor` | Lee los bytes nuevos del crudo, valida y limpia, calcula sentimiento y emoción por lotes de 64 comentarios e inserta en `fact_comment` | Python + pysentimiento (versión fijada), cron | Cada hora, a los 15 minutos | Un lote, una transacción. El checkpoint (archivo y byte) se guarda **después del COMMIT**, como en la Tarea 4. | `INSERT … ON CONFLICT (comment_id) DO NOTHING`: ningún comentario se cuenta dos veces |
 | `lyrics_processor` | Para cada canción con letra nueva, elige la versión de consenso, la divide en estrofas, calcula el sentimiento y actualiza `dim_song` | Python + pysentimiento, cron | Cada hora | Una canción, una transacción | Solo procesa canciones con `model_version` distinta a la actual |
-| `aggregate_week` | Recalcula `song_week_reaction` de las semanas que tuvieron comentarios nuevos | SQL desde Python, cron | Cada hora, después del processor | DELETE + INSERT de cada semana en una transacción | El resultado es el mismo: el agregado se recalcula desde cero |
-| `retention` | Borra comentarios y archivos crudos de más de 30 días | Python, cron | Diario, 02:00 | Borra por lotes, cada uno en una transacción | Si no hay nada viejo, no borra nada |
+| `aggregate_week` | Recalcula `song_week_reaction` de las parejas canción–semana que tuvieron comentarios nuevos (`last_ingested_at`) o cambios de descarte | SQL desde Python, cron | Cada hora, después del processor | DELETE + INSERT de las parejas en una transacción | Una segunda corrida no encuentra nada que recalcular |
+| `retention` | Borra comentarios y archivos crudos de 29 días o más | Python, cron | Cada hora, a los :40 | Borra por lotes, cada uno en una transacción | Si no hay nada viejo, no borra nada |
 | Dashboard | Muestra una página por pregunta, leyendo de las vistas `v_p1` a `v_p7` | Streamlit | Siempre encendido, en `localhost:8501` | Solo lee, no modifica datos | — |
-| Modelo | Entrena una regresión logística con la reacción y el volumen de comentarios, el crecimiento de vistas, `rank`, `weeks_on_chart` y `lyrics_score`. La prueba son las 3 últimas semanas; guarda el modelo y sus métricas. | scikit-learn | Semanal (viernes, después de cargar el chart) y bajo demanda | Escribe el modelo en un archivo temporal y lo renombra; si falla, se queda el modelo anterior | Con los mismos datos y `random_state` fijo produce el mismo modelo |
+| Modelo | Entrena una regresión logística con la reacción y el volumen de comentarios, el crecimiento de comentarios (las fotos de vistas empezaron el 20 de noviembre y las semanas de entrenamiento no las tienen), `rank`, lugares que subió, `weeks_on_chart`, si es debut y `lyrics_score`. La prueba son las 3 últimas semanas; guarda el modelo, sus métricas y las predicciones. | scikit-learn | Revisa cada hora y solo reentrena si cambió la huella (md5) de sus datos | Escribe el modelo en un archivo temporal y lo renombra; si falla, se queda el modelo anterior | Con los mismos datos y `random_state` fijo produce el mismo modelo |
 
 **Cómo se elige la versión correcta de la letra**
 
@@ -343,7 +371,7 @@ Todas las etapas están escritas en Python 3.13, con `uv` para las dependencias,
 | Búsquedas de videos nuevos: ~5–10 por semana × 100 | ~150 en promedio (hasta 1,000 el día del chart) |
 | Foto de estadísticas: ~120 videos / 50 por llamada | 3 |
 | **Total normal** | **~1,500** |
-| Carga histórica, por única vez: ~120 búsquedas + todas las páginas de comentarios | Se reparte en 2–3 días con un tope de 8,000 al día |
+| Carga histórica, por única vez: ~120 búsquedas + todas las páginas de comentarios | Se reparte en varios días con un tope de 7,500 al día |
 
 Cada llamada a la API pasa por una sola función, `youtube_client.call()`. Esa función suma las unidades en `etl_quota_usage` y se niega a llamar si el día ya pasó de 9,000 unidades, para dejar margen.
 
@@ -375,15 +403,18 @@ cada hora:
 
 ```text
 Analisis-Sentimiento-Spotify/
-├── docker-compose.yml         # postgres, kafka, producer, consumer, batch (cron), dashboard
-├── Dockerfile                 # imagen de Python con uv, cron y el modelo de sentimiento ya descargado
-├── pyproject.toml             # dependencias (psycopg, confluent-kafka, pysentimiento, streamlit, scikit-learn)
-├── uv.lock                    # versiones exactas para que la instalación sea reproducible
-├── .env.example               # variables necesarias (POSTGRES_*, YOUTUBE_API_KEY…) con valores de ejemplo
+├── docker-compose.yml         # postgres, kafka, batch (cron), comments_producer, consumer, dashboard
+├── Dockerfile                 # Python 3.13 con uv, cron y los modelos de sentimiento ya descargados
+├── pyproject.toml, uv.lock    # dependencias con versiones exactas (PyTorch solo CPU en Linux)
+├── .env.example               # variables necesarias (POSTGRES_*, YOUTUBE_API_KEY) con valores de ejemplo
+├── .streamlit/config.toml     # tema del dashboard
 ├── db/
 │   ├── 01_control.sql         # etl_loaded_file, etl_quota_usage, video_watermark
-│   ├── 02_star.sql            # dimensiones, puente y tablas de hechos
-│   └── 03_views.sql           # vistas v_p1 … v_p7, una por pregunta de negocio
+│   ├── 02_star.sql            # dim_date, dim_artist, dim_song, song_uri, song_artist y los hechos
+│   ├── 03_views.sql           # vistas v_p1 … v_p7, v_business_check y sus vistas de apoyo
+│   ├── 04_model.sql           # model_run y model_prediction
+│   └── 05_validation.sql      # sentiment_label y video_check (validación manual)
+├── common/jobs.py             # formato del log, conexión a PostgreSQL y candado por trabajo
 ├── ingestion/
 │   ├── youtube_client.py      # única puerta a la API de YouTube; lleva la cuenta de la cuota
 │   ├── chart_loader.py        # carpeta de entrada → crudo → fact_chart_week y dimensiones
@@ -392,27 +423,31 @@ Analisis-Sentimiento-Spotify/
 │   ├── comments_producer.py   # poller de comentarios → Kafka
 │   ├── consumer.py            # Kafka → raw/comments/AAAA-MM-DD.log (de la Tarea 4)
 │   ├── stats_snapshot.py      # videos.list → fact_video_daily
-│   └── crontab                # horarios de los trabajos batch
+│   ├── crontab                # horarios de los trabajos batch
+│   └── entrypoint_batch.sh    # arranque del contenedor batch
 ├── transform/
-│   ├── normalize.py           # normalización de títulos y artistas
-│   ├── match.py               # elegir la versión de la letra y el video correcto
-│   ├── sentiment.py           # carga el modelo fijado y analiza textos por lotes
+│   ├── normalize.py           # normalización de títulos, artistas y sellos
+│   ├── song_identity.py       # une las URI de Spotify que son la misma canción
+│   ├── match.py               # elige el video oficial y la versión de consenso de la letra
+│   ├── sentiment.py           # carga los modelos fijados y analiza textos por lotes
 │   ├── comments_processor.py  # crudo → fact_comment, con checkpoint
-│   ├── lyrics_processor.py    # letras → sentimiento en dim_song
+│   ├── lyrics_processor.py    # letras → sentimiento por estrofa en dim_song
 │   ├── aggregate_week.py      # fact_comment → song_week_reaction
-│   └── retention.py           # borra comentarios y crudos de más de 30 días
+│   └── retention.py           # borra comentarios y crudos a los 29 días
 ├── delivery/
-│   ├── dashboard/app.py       # Streamlit: una página por pregunta
-│   └── model/train.py         # regresión logística y sus métricas
+│   ├── dashboard/             # Streamlit: app.py, ui.py, data.py, state.py y una página por archivo
+│   └── model/train.py         # regresión logística, evaluación y predicciones
 ├── scripts/
-│   └── verify.py              # conciliación crudo ↔ base, cobertura y cuota
-├── tests/                     # pruebas de normalize.py y match.py con casos reales (Suzuki, BbY WOW)
-├── data/                      # ignorada por git: landing/, raw/, state/
+│   ├── verify.py              # conciliación crudo ↔ base, cobertura, cuota y privacidad
+│   ├── review_videos.py       # revisión manual de los videos
+│   └── label_sentiment.py     # etiquetado manual de comentarios
+├── tests/                     # pruebas con casos reales (Suzuki, BbY WOW, Tyler, The Creator)
+├── data/                      # ignorada por git: landing/ (CSV descargados a mano)
 ├── logs/                      # ignorada por git: un .log por trabajo
 ├── docs/
 │   ├── rfc.md                 # este documento
 │   └── diagrama_flujo.png     # diagrama del flujo
-└── README.md                  # cómo correrlo desde cero
+└── README.md                  # cómo correrlo desde cero, verificación, criterios y decisiones
 ```
 
 ### f) Observabilidad
@@ -445,7 +480,17 @@ Además, `scripts/verify.py` imprime una conciliación y termina con `OK` o con 
 
 - comentarios únicos en el crudo (últimos 30 días) = filas de `fact_comment` + descartados registrados;
 - cobertura de letras y de videos;
-- cuota usada por día.
+- cuota usada por día;
+- que ningún mensaje traiga campos del autor y que no haya filas de más de 30 días;
+- que la reacción semanal esté al día y que todas las vistas se puedan consultar.
+
+**Cuánto tardo en enterarme de una falla.** Los trabajos corren cada hora, así que una falla aparece a más tardar en una hora: su línea de fin trae `errores=` mayor que 0, y lo que un trabajo escribe a la salida de errores queda en `logs/cron_errors.log`. Lo veo en tres lugares:
+
+- la página «Calidad de los datos» del dashboard, con la antigüedad del último dato de cada fuente;
+- la barra lateral del dashboard, que avisa si Spotify ya publicó un chart que no se ha descargado (la descarga es manual);
+- `scripts/verify.py`.
+
+No hay alertas por correo: sería otra herramienta fuera de las del curso, y para un sistema que corre en mi Mac basta con revisar el dashboard.
 
 ---
 
@@ -559,14 +604,20 @@ El README tendrá estos pasos y una sección de verificación con `scripts/verif
 - **La elección de la letra y del video** sigue reglas deterministas, con desempate por `id`.
 - **El modelo predictivo** usa `random_state` fijo.
 
+**Cómo comparar resultados con otra instalación.** Los números exactos no van a salir iguales, porque los comentarios son en vivo y no se pueden guardar más de 30 días. Lo reproducible es el proceso: con su propia API key y los mismos CSV, `verify.py` debe dar `OK` y el chart y las letras deben dar prácticamente lo mismo. Para comparar canciones se usa la URI de Spotify, no `song_key`. El README deja los valores del día de la entrega.
+
 ### Limitaciones conocidas
 
 - El público que comenta en YouTube no es necesariamente el que escucha en Spotify, así que la reacción tiene un sesgo hacia quien comenta.
+- El chart es de México, pero la API de YouTube no dice de qué país es quien comenta. Con la regla de idioma, la reacción mide al público de YouTube que habla español, no exactamente al de México.
+- No se guarda nada del autor, ni su id, así que una persona que publica 50 comentarios pesa 50 veces. Lo mitigan dos cosas: solo cuentan los comentarios principales y P1 y P2 piden al menos 20 comentarios por canción y semana.
+- El modelo de sentimiento no distingue un elogio triste («me hizo llorar») de un rechazo. Por eso la emoción se muestra aparte, y la validación manual mide qué tan seguido se equivoca.
+- Una letra mitad en español y mitad en inglés puede quedar clasificada de cualquiera de los dos lados.
 - Solo comentarios principales, sin respuestas.
 - El sentimiento de las letras es ruidoso: jerga, doble sentido, spanglish ("Vamo haciendo un alboroto-to-to").
 - Por la retención de 30 días, no se puede reprocesar el texto de comentarios viejos con un modelo nuevo; solo quedan sus agregados.
-- La descarga del chart es manual y depende de que yo la haga cada semana.
-- El sistema corre en mi Mac: si está apagada, el *poller* no corre. Los comentarios se recuperan después porque traen su fecha, pero la foto de estadísticas de ese día se pierde.
+- La descarga del chart es manual y depende de que yo la haga cada semana. El dashboard avisa cuando falta una.
+- El sistema corre en mi Mac: si está apagada, el *poller* no corre. Los comentarios se recuperan después porque traen su fecha. La foto de estadísticas se intenta cada 10 minutos, así que basta con que la Mac esté despierta unos minutos al día. Si aun así falta un día, no se pierden vistas: los contadores son acumulados y la diferencia queda sumada en la siguiente foto; solo se pierde el detalle de ese día.
 - La imagen de Docker pesa varios GB por PyTorch, que necesita el modelo de sentimiento.
 
 ### Riesgos y preguntas abiertas
@@ -574,10 +625,11 @@ El README tendrá estos pasos y una sección de verificación con `scripts/verif
 | Riesgo | Mitigación |
 |---|---|
 | Se agota la cuota de YouTube | Tope de 9,000 unidades al día en `youtube_client`, la carga histórica repartida en varios días y búsquedas guardadas una sola vez |
-| Se elige un video que no es el oficial | Regla por canal (artista o sello); los casos dudosos se marcan; reviso a mano el top 50 |
+| Se elige un video que no es el oficial | Regla por canal (artista o sello); los casos dudosos se marcan como `review`. Cada viernes, al descargar el chart, reviso los marcados de las canciones nuevas del top 50 (`scripts/review_videos.py`); la revisión de 20 al azar mide el criterio de éxito |
 | LRCLIB no tiene la letra o tiene versiones equivocadas | Versión de consenso; las canciones sin letra quedan fuera de las preguntas de letras y se reporta la cobertura |
-| El modelo de sentimiento es muy lento en CPU | Medirlo en la semana 3. Si no alcanza, analizar solo los comentarios con más de 3 palabras y una muestra de los que tienen puros emojis. |
-| Pocas semanas para entrenar el modelo | 12 semanas de historia; es un extra y el dashboard no depende de él |
+| El modelo de sentimiento es muy lento en CPU | Resuelto: con inferencia por lotes analiza 35 a 54 comentarios por segundo, así que se analizan todos, incluidos los cortos («temazo») y los de puros emojis. No hace falta descartar comentarios cortos, que habría sesgado el resultado. |
+| Un video viral junta cientos de miles de comentarios | Pasó con «SWIM» de BTS (539,000). Los logs solo guardan conteos, el crudo se borra a los 29 días, la carga histórica para en 7,500 unidades al día y las canciones con letra en inglés quedan fuera |
+| Pocas semanas para entrenar el modelo | Se cargaron 54 semanas; es un extra y el dashboard no depende de él |
 
 **Preguntas para el revisor:**
 
@@ -589,21 +641,19 @@ El README tendrá estos pasos y una sección de verificación con `scripts/verif
 
 ### Plan de trabajo actualizado
 
-| Semana | Actividad | Inicio estimado | Término estimado | Responsable |
-|---|---|---|---|---|
-| 1 | Escribir este RFC | 18 nov | 19 nov | Francisco Ortega |
-| 1 | Repo, `docker-compose.yml`, `Dockerfile`, esquema `db/` (control y estrella) | 20 nov | 21 nov | Francisco Ortega |
-| 1 | `chart_loader` y carga de 12 semanas de historia | 21 nov | 23 nov | Francisco Ortega |
-| 2 | Revisar el RFC asignado y responder los comentarios recibidos | 23 nov | 24 nov | Francisco Ortega |
-| 2 | `youtube_client` (cuota), `video_finder` y `stats_snapshot` encendido | 24 nov | 25 nov | Francisco Ortega |
-| 2 | `comments_producer` + Kafka + `consumer`, encendidos desde aquí hasta la entrega | 25 nov | 27 nov | Francisco Ortega |
-| 2 | `lyrics_fetcher` y carga histórica de comentarios, repartida para respetar la cuota | 27 nov | 30 nov | Francisco Ortega |
-| 3 | `normalize` y `match` con pruebas; revisión manual de los videos del top 50 | 30 nov | 2 dic | Francisco Ortega |
-| 3 | `sentiment`, `comments_processor` y `lyrics_processor`; medir velocidad y etiquetar 100 comentarios | 2 dic | 4 dic | Francisco Ortega |
-| 3 | `aggregate_week`, `retention` y vistas `v_p1` a `v_p7` | 4 dic | 6 dic | Francisco Ortega |
-| 4 | Dashboard en Streamlit (7 páginas) | 7 dic | 9 dic | Francisco Ortega |
-| 4 | Modelo de regresión logística y su evaluación | 9 dic | 10 dic | Francisco Ortega |
-| 4 | `verify.py`, prueba desde un clon limpio, README y entrega | 11 dic | 13 dic | Francisco Ortega |
+La entrega es el **lunes 7 de diciembre**. La construcción avanzó más rápido que el plan de la versión 1.0, así que el plan queda así:
+
+| Semana | Actividad | Inicio | Término | Estado | Responsable |
+|---|---|---|---|---|---|
+| 1 | Escribir este RFC | 18 nov | 19 nov | Hecho | Francisco Ortega |
+| 1 | Repo, `docker-compose.yml`, `Dockerfile`, esquema `db/`, `chart_loader` y 54 semanas de historia | 20 nov | 21 nov | Hecho | Francisco Ortega |
+| 1 | `youtube_client`, `video_finder`, `stats_snapshot`, `comments_producer` + Kafka + `consumer`, encendidos hasta la entrega | 21 nov | 22 nov | Hecho | Francisco Ortega |
+| 1 | Letras, sentimiento, processors, agregados, vistas, dashboard y modelo | 22 nov | 23 nov | Hecho | Francisco Ortega |
+| 2 | Revisar el RFC asignado, responder los comentarios recibidos e incorporarlos (versión 1.1) | 23 nov | 24 nov | Hecho | Francisco Ortega |
+| 2 | Validación manual: etiquetar 100 comentarios y revisar 20 videos | 25 nov | 2 dic | Pendiente | Francisco Ortega |
+| 2–3 | Cargar los charts del 19 y 26 de noviembre y del 3 de diciembre; volver a medir los criterios | 27 nov | 4 dic | Pendiente | Francisco Ortega |
+| 3 | Prueba desde un clon limpio, verificación final, README y RFC finales | 5 dic | 6 dic | Pendiente | Francisco Ortega |
+| 3 | Entrega | 7 dic | 7 dic | — | Francisco Ortega |
 
 Cada viernes, además: descargar el CSV del chart nuevo.
 
@@ -611,18 +661,21 @@ Cada viernes, además: descargar el CSV del chart nuevo.
 
 ## 10. Criterios de éxito (*Metrics*)
 
-| Criterio | Cómo se mide | Valor esperado | Valor de hoy |
+El README lleva la misma tabla con los valores al día. Si un criterio no se cumple, se reporta tal cual en el README, con su valor, la causa y qué se haría; no se ajusta nada para que salga. Los criterios de datos (duplicados, idempotencia, retención) sí bloquean la entrega: `verify.py` falla y se corrige antes de entregar. El modelo predictivo no bloquea, porque el dashboard no depende de él.
+
+| Criterio | Cómo se mide | Valor esperado | Valor del 24 de noviembre |
 |---|---|---|---|
-| Cobertura de letras | Canciones con `lyrics_status = 'found'` ÷ canciones distintas del chart | ≥ 85 % | 10 de 10 en el top 10 (0.34 s por consulta) |
-| Video oficial correcto | Revisión manual de 20 canciones del top 50 elegidas al azar | ≥ 90 % correctas | 1 de 1 con la regla del sello; sin la regla, el primer resultado era incorrecto |
-| Latencia de comentarios | p95 de (`ingested_at` en la base − `published_at`), solo comentarios del *poller* | ≤ 2 h | — |
-| Sin duplicados | `COUNT(*)` contra `COUNT(DISTINCT comment_id)` en `fact_comment`, y la conciliación de `verify.py` | 0 diferencias | — |
-| Idempotencia | Correr cada trabajo dos veces seguidas y comparar el conteo y un checksum de cada tabla | 0 diferencias | Probado con el processor de la Tarea 4 |
-| Cuota | Máximo diario en `etl_quota_usage` | < 9,000 en carga histórica; ~1,500 en operación normal | 100 comentarios = 1 unidad, en 0.55 s |
-| Carga del chart | Duración registrada en `chart_loader.log` | < 10 s por archivo | — |
-| Calidad del sentimiento | Coincidencia contra 100 comentarios etiquetados a mano | ≥ 70 % | — |
-| Velocidad del sentimiento | Comentarios por segundo en `comments_processor.log` | 10,000 comentarios en < 15 min | Por medir en la semana 3 |
-| Modelo predictivo | AUC en las 3 últimas semanas, contra el *baseline* "sube si subió la semana pasada" | AUC ≥ 0.60 y mayor que el *baseline* | — |
-| Preguntas respondidas | Cada pregunta P1 a P7 tiene su vista y su página en el dashboard | 7 de 7 | 0 de 7 |
-| Retención | Comentarios con `ingested_at` de más de 30 días en la base o el crudo | 0 | — |
-| Reproducibilidad | Tiempo desde `git clone` hasta ver el dashboard con datos, siguiendo el README en un clon limpio | ≤ 30 min, sin contar la carga histórica | — |
+| Cobertura de letras | Canciones con `lyrics_status = 'found'` ÷ canciones distintas del chart | ≥ 85 % | 99.2 % (658 de 663) |
+| Video oficial correcto | Revisión manual de 20 canciones del top 50 elegidas al azar | ≥ 90 % correctas | Pendiente de la revisión; la regla eligió sola 75 de 78 videos |
+| Latencia de comentarios | p95 de (`ingested_at` en la base − `published_at`), comentarios del top 50 | ≤ 2 h | 18.2 h, por la carga histórica de BTS, que ya quedó fuera; se vuelve a medir |
+| Sin duplicados | `COUNT(*)` contra `COUNT(DISTINCT comment_id)` en `fact_comment`, y la conciliación de `verify.py` | 0 diferencias | 0 |
+| Idempotencia | Correr cada trabajo dos veces seguidas y comparar el conteo y un checksum de cada tabla | 0 diferencias | 0 |
+| Cuota | Máximo diario en `etl_quota_usage` | < 9,000 en carga histórica; ~1,500 en operación normal | 8,437 en carga histórica; 1,385 en operación |
+| Carga del chart | Duración registrada en `chart_loader.log` | < 10 s por archivo | 0.08 s por archivo |
+| Calidad del sentimiento | Coincidencia contra 100 comentarios etiquetados a mano | ≥ 70 % | Pendiente del etiquetado |
+| Velocidad del sentimiento | Comentarios por segundo en `comments_processor.log` | 10,000 comentarios en < 15 min | 10,000 en 3 a 5 min |
+| Modelo predictivo | AUC en las 3 últimas semanas, contra el *baseline* "sube si subió la semana pasada" | AUC ≥ 0.60 y mayor que el *baseline* | 0.62 contra 0.68: pasa el 0.60, no le gana al *baseline* |
+| Preguntas respondidas | Cada pregunta P1 a P7 tiene su vista y su página en el dashboard | 7 de 7 | 7 de 7 |
+| Retención | Comentarios con `ingested_at` de más de 30 días en la base o el crudo | 0 | 0 |
+| Reproducibilidad | Tiempo desde `git clone` hasta ver el dashboard con datos, siguiendo el README en un clon limpio | ≤ 30 min, sin contar la carga histórica | Se mide en la prueba final |
+| **De negocio:** las candidatas suben | De las 6 canciones que el resumen propone promover cada semana, cuántas suben la semana siguiente, contra la tasa de todo el top 50 (vista `v_business_check`, página 2 del dashboard) | Mayor que la tasa base | 38.1 % contra 33.2 % en 53 semanas |

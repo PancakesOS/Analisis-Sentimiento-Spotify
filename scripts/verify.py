@@ -314,12 +314,12 @@ def check_reaction(conn, log) -> list[str]:
 def check_views(conn, log) -> list[str]:
     diffs = []
     counts = []
-    for i in range(1, 8):
+    for view in [f"v_p{i}" for i in range(1, 8)] + ["v_business_check"]:
         try:
             with conn.transaction():
-                counts.append(f"v_p{i}={conn.execute(f'SELECT count(*) FROM v_p{i}').fetchone()[0]}")
+                counts.append(f"{view}={conn.execute(f'SELECT count(*) FROM {view}').fetchone()[0]}")
         except psycopg.Error as e:
-            diffs.append(f"v_p{i} no se puede consultar: {e}")
+            diffs.append(f"{view} no se puede consultar: {e}")
     log.info("vistas: %s", " ".join(counts))
     return diffs
 

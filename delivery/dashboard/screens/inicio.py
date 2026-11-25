@@ -59,7 +59,7 @@ candidates = data.query("""
     JOIN v_song s ON s.song_key = p.song_key
     LEFT JOIN model_prediction mp ON mp.week_key = p.week_key AND mp.song_key = p.song_key
     WHERE p.week_key = %s
-    ORDER BY p.pct_pos DESC, p.avg_score DESC
+    ORDER BY p.pct_pos DESC, p.avg_score DESC, p.rank   -- el mismo orden que v_business_check
     LIMIT 6
 """, (week_key,))
 if candidates.empty:
