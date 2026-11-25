@@ -14,8 +14,19 @@
 # Cada hora, a los 5 minutos: busca el video oficial de las canciones del top 50 que no lo tienen.
 5 * * * * cd /app && /app/.venv/bin/python -m ingestion.video_finder > /dev/null 2>> /app/logs/cron_errors.log
 
+# Cada hora, a los 15 minutos: comentarios del crudo -> fact_comment (con su sentimiento)
+# y, en cuanto termina, el agregado por canción y semana (song_week_reaction).
+15 * * * * cd /app && /app/.venv/bin/python -m transform.comments_processor > /dev/null 2>> /app/logs/cron_errors.log; /app/.venv/bin/python -m transform.aggregate_week > /dev/null 2>> /app/logs/cron_errors.log
+
+# Cada hora, a los 25 minutos: letras nuevas de LRCLIB y, en cuanto termina, su sentimiento.
+25 * * * * cd /app && /app/.venv/bin/python -m ingestion.lyrics_fetcher > /dev/null 2>> /app/logs/cron_errors.log; /app/.venv/bin/python -m transform.lyrics_processor > /dev/null 2>> /app/logs/cron_errors.log
+
 # Cada hora, a los 40 minutos: borra el texto de comentarios de 29 días o más.
 40 * * * * cd /app && /app/.venv/bin/python -m transform.retention > /dev/null 2>> /app/logs/cron_errors.log
+
+# Cada hora, a los 50 minutos: reentrena el modelo si cambiaron los datos y
+# recalcula las predicciones de la semana más reciente.
+50 * * * * cd /app && /app/.venv/bin/python -m delivery.model.train > /dev/null 2>> /app/logs/cron_errors.log
 
 # Cada 10 minutos: foto de estadísticas de los videos si la última del día tiene más de 55 minutos
 # (a lo más una por hora; sobrescribe la del día). Así basta poco tiempo despierta para no perder el día.

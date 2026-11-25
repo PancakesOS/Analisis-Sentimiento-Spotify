@@ -79,6 +79,15 @@ class SplitArtistsTest(unittest.TestCase):
         self.assertEqual(split_artists("Fuerza Regida, Grand Theft Auto VI"),
                          ["Fuerza Regida", "Grand Theft Auto VI"])
 
+    def test_names_with_comma(self):
+        self.assertEqual(split_artists("Tyler, The Creator"), ["Tyler, The Creator"])
+        self.assertEqual(split_artists("Kali Uchis, Tyler, The Creator, Bootsy Collins"),
+                         ["Kali Uchis", "Tyler, The Creator", "Bootsy Collins"])
+        self.assertEqual(split_artists("Earth, Wind & Fire, Emotions"),
+                         ["Earth, Wind & Fire", "Emotions"])
+        # Solo nombres completos: "The Creators" no es "The Creator".
+        self.assertEqual(split_artists("Tyler, The Creators"), ["Tyler", "The Creators"])
+
     def test_removes_empty_and_repeated(self):
         self.assertEqual(split_artists("Neton Vega, , NETON VEGA, Fuerza Regida"),
                          ["Neton Vega", "Fuerza Regida"])

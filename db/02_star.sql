@@ -206,8 +206,9 @@ CREATE INDEX IF NOT EXISTS fact_chart_week_song_key_idx ON fact_chart_week (song
 --   * score = p_pos - p_neg, de -1 a 1 (columna calculada).
 --   * like_count y reply_count son los del momento de la ingesta.
 --   * discarded = true cuando el comentario es de un video que resultó
---     no ser el oficial: deja de contar, pero no se borra hasta que
---     cumpla los 30 días.
+--     no ser el oficial, o de una canción con la letra en inglés (fuera
+--     del análisis): deja de contar, pero no se borra hasta que cumpla
+--     los 30 días.
 --   * Retención: retention.py borra las filas con ingested_at de más de
 --     30 días (política de YouTube). Por eso hay un índice por fecha de
 --     ingesta.
@@ -278,9 +279,13 @@ CREATE INDEX IF NOT EXISTS fact_video_daily_song_key_idx ON fact_video_daily (so
 -- (agregado de fact_comment sin los descartados).
 --   * pct_pos, pct_neu y pct_neg son proporciones de 0 a 1 que suman 1.
 --   * avg_score es el promedio de score, de -1 a 1.
---   * aggregate_week la recalcula desde cero (DELETE + INSERT por
---     semana), así que correrla dos veces da lo mismo. Es lo único que
---     queda de los comentarios después de los 30 días.
+--   * dominant_emotion: la emoción más frecuente sin contar "others".
+--   * aggregate_week la recalcula desde cero (DELETE + INSERT de cada
+--     pareja canción–semana), así que correrla dos veces da lo mismo. Es
+--     lo único que queda de los comentarios después de los 30 días.
+--   * last_ingested_at: el ingested_at más reciente de los comentarios
+--     con que se calculó. Si llega un comentario más nuevo de la misma
+--     pareja, aggregate_week sabe que debe recalcularla.
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS song_week_reaction (
     week_key         integer      NOT NULL,
@@ -292,6 +297,7 @@ CREATE TABLE IF NOT EXISTS song_week_reaction (
     avg_score        numeric(5,4) NOT NULL,
     dominant_emotion text,
     updated_at       timestamptz  NOT NULL DEFAULT now(),
+    last_ingested_at timestamptz  NOT NULL,
     CONSTRAINT song_week_reaction_pkey       PRIMARY KEY (week_key, song_key),
     CONSTRAINT song_week_reaction_week_fkey  FOREIGN KEY (week_key) REFERENCES dim_date (date_key),
     CONSTRAINT song_week_reaction_song_fkey  FOREIGN KEY (song_key) REFERENCES dim_song (song_key),

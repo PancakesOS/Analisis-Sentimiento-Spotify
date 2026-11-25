@@ -8,7 +8,7 @@ x-postgres-env: &postgres-env                 # Variables de conexión que compa
   TZ: America/Mexico_City
 
 services:
-  postgres:                 # La base: control, modelo estrella y (después) las vistas de las preguntas
+  postgres:                 # La base: control, modelo estrella, vistas de las preguntas y resultados del modelo
     image: postgres:18
     environment:            # Usuario, contraseña y base a crear, tomados del .env (si falta uno, compose se detiene con el mensaje)
       POSTGRES_USER: ${POSTGRES_USER:?Falta POSTGRES_USER en .env (copia .env.example)}
@@ -17,7 +17,7 @@ services:
       TZ: America/Mexico_City                 # Las fechas con zona se muestran en hora de México
       PGTZ: America/Mexico_City
     volumes:
-      - ./db:/docker-entrypoint-initdb.d:ro   # 01_control.sql y 02_star.sql: solo corren con el volumen vacío
+      - ./db:/docker-entrypoint-initdb.d:ro   # 01 a 05 (control, estrella, vistas, modelo, validación): solo corren con el volumen vacío
       - pgdata:/var/lib/postgresql            # Los datos sobreviven a docker compose down (sin -v)
     # Sin "ports": nada fuera de Docker necesita la base, y así no choca con
     # otro PostgreSQL en el puerto 5432. Para consultarla:
@@ -59,7 +59,7 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  batch:                    # cron: chart_loader, video_finder, stats_snapshot y retention
+  batch:                    # cron: carga, letras, videos, estadísticas, sentimiento, agregados, modelo y retención
     build: .
     command: ["sh", "/app/ingestion/entrypoint_batch.sh"]
     init: true              # Un init mínimo como PID 1: el contenedor se detiene de inmediato con docker compose stop
@@ -107,6 +107,28 @@ services:
       - ./logs:/app/logs
     depends_on:
       kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:                # Streamlit: las 7 preguntas de Laura, en http://localhost:8501
+    build: .
+    command: ["/app/.venv/bin/streamlit", "run", "delivery/dashboard/app.py",
+              "--server.port=8501", "--server.address=0.0.0.0"]
+    init: true
+    environment:
+      <<: *postgres-env
+      PYTHONPATH: /app                        # para importar delivery.dashboard.* desde app.py
+    ports:
+      - "127.0.0.1:8501:8501"                 # solo desde esta computadora
+    healthcheck:            # Streamlit responde "ok" en /_stcore/health cuando está listo
+      test: ["CMD", "/app/.venv/bin/python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 

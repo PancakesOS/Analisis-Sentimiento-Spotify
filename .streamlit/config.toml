@@ -1,0 +1,21 @@
+# Configuración del dashboard (Streamlit lee este archivo desde /app/.streamlit/).
+
+[server]
+headless = true                 # sin abrir navegador dentro del contenedor
+runOnSave = false
+
+[browser]
+gatherUsageStats = false        # no mandar estadísticas de uso a Streamlit
+
+[client]
+toolbarMode = "viewer"          # oculta el menú de desarrollo
+showSidebarNavigation = true
+
+[theme]
+base = "dark"
+primaryColor = "#3987e5"
+backgroundColor = "#0e0f13"
+secondaryBackgroundColor = "#16181e"
+textColor = "#eceae6"
+font = "sans-serif"
+baseRadius = "0.75rem"

@@ -12,7 +12,8 @@ de YouTube. Estas funciones dejan los nombres en una forma comparable:
   * normalize_label:  además se queda con el primer sello y quita lo que
                       cambia entre filas del mismo sello: paréntesis,
                       "by …", "LLC", "Records", "Music"…
-  * split_artists:    separa artist_names del CSV ("A, B, C").
+  * split_artists:    separa artist_names del CSV ("A, B, C"), sin partir
+                      los nombres que llevan coma ("Tyler, The Creator").
 
 Son reglas deterministas: el mismo texto da siempre el mismo resultado.
 """
@@ -32,6 +33,21 @@ _TITLE_FEAT_TAIL = re.compile(r"\s+(?:feat|ft|featuring)\b\.?\s.*$", re.IGNORECA
 _TITLE_DASH_SUFFIX = re.compile(r"\s+-\s+.*$")
 # Puntuación al inicio o al final ("/Perro Fiel", "¿…?"); no quita un ")" final.
 _EDGE_PUNCT = re.compile(r"^[\W_]+|[^\w)]+$")
+
+# Artistas cuyo nombre lleva coma. El CSV separa a los artistas con ", ",
+# así que sin esta lista "Tyler, The Creator" quedaría como dos artistas.
+# Ninguno ha aparecido en el chart de México; si aparece otro, se agrega aquí.
+COMMA_ARTISTS = (
+    "Tyler, The Creator",
+    "Earth, Wind & Fire",
+    "Crosby, Stills, Nash & Young",
+    "Crosby, Stills & Nash",
+    "Emerson, Lake & Palmer",
+    "Peter, Paul and Mary",
+)
+_COMMA_ARTISTS_RE = re.compile(
+    r"(?<![^,\s])(" + "|".join(re.escape(n) for n in COMMA_ARTISTS) + r")(?![^,\s])",
+    re.IGNORECASE)
 
 _LABEL_PAREN = re.compile(r"\([^)]*\)")
 _LABEL_BY = re.compile(r"\s+(?:distributed\s+by|by|presenta)\s+.*$", re.IGNORECASE)
@@ -111,10 +127,18 @@ def split_artists(artist_names: str) -> list[str]:
     """Separa artist_names ("Fuerza Regida, Grand Theft Auto VI") en una lista.
 
     Conserva el orden (el primero es el artista principal) y quita
-    vacíos y repetidos según su forma normalizada.
+    vacíos y repetidos según su forma normalizada. Los nombres de
+    COMMA_ARTISTS no se parten.
     """
+    protected: list[str] = []
+
+    def protect(match: re.Match) -> str:
+        protected.append(match.group(1))
+        return f"\x00{len(protected) - 1}\x00"
+
     artists, seen = [], set()
-    for name in artist_names.split(","):
+    for name in _COMMA_ARTISTS_RE.sub(protect, artist_names).split(","):
+        name = re.sub(r"\x00(\d+)\x00", lambda m: protected[int(m.group(1))], name)
         name = _SPACES.sub(" ", name).strip()
         norm = normalize_artist(name)
         if norm and norm not in seen:

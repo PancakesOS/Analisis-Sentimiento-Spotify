@@ -5,9 +5,8 @@ y PostgreSQL:
 
     docker compose exec batch /app/.venv/bin/python -m scripts.verify
 
-Por ahora revisa la parte del chart (semana 1 del plan). Al construir las
-demás etapas se le agregan la conciliación de comentarios, la cobertura
-de letras y videos, y la cuota (RFC, sección 7 f).
+Revisa todo el flujo (RFC, sección 7 f): el chart, YouTube, las letras,
+los comentarios, el agregado semanal y las vistas de las preguntas.
 
   1. Cada CSV de la carpeta de entrada está registrado en etl_loaded_file.
   2. Cada semana cargada tiene en fact_chart_week tantas filas como dice
@@ -27,6 +26,16 @@ de letras y videos, y la cuota (RFC, sección 7 f).
      mensaje del crudo de comentarios trae campos del autor; ningún
      archivo del crudo tiene más de 30 días. Muestra la cobertura de
      videos del top 50 vigente.
+  8. Letras: cada canción con letra tiene su versión en el crudo; la
+     cobertura llega a la meta del RFC (85 %) cuando ya no hay pendientes.
+  9. Comentarios (conciliación crudo ↔ base): cada comentario válido del
+     crudo, hasta donde llegó comments_processor y de un video que
+     pertenece a una canción, está en fact_comment; fact_comment no tiene
+     filas de más de 30 días de ingeridas.
+ 10. Agregado semanal: ninguna pareja canción–semana está pendiente de
+     recalcular y, mientras sus comentarios sigan en la base, su
+     n_comments coincide con fact_comment.
+ 11. Las vistas v_p1 a v_p7 existen y se pueden consultar.
 
 Termina con OK o con la lista de diferencias (y código de salida 1).
 """
@@ -40,6 +49,9 @@ from datetime import date, timedelta
 import psycopg
 
 from common.jobs import LANDING_DIR, RAW_DIR, pg_params, setup_logging
+from transform.aggregate_week import STALE_SQL
+from transform.comments_processor import (STATE_FILE, InvalidLine, load_video_songs, new_lines,
+                                          parse_comment)
 from transform.song_identity import PAIRS_SQL
 
 JOB = "verify"
@@ -203,6 +215,115 @@ def check_youtube(conn, log) -> list[str]:
     return diffs
 
 
+LYRICS_GOAL = 0.85
+
+
+def check_lyrics(conn, log) -> list[str]:
+    """Letras: versión en el crudo y cobertura contra la meta del RFC."""
+    diffs = []
+    songs, found, pending, analyzed, english = conn.execute(
+        """
+        SELECT count(*), count(*) FILTER (WHERE lyrics_status = 'found'),
+               count(*) FILTER (WHERE lyrics_status IS NULL),
+               count(*) FILTER (WHERE model_version IS NOT NULL),
+               count(*) FILTER (WHERE lyrics_language = 'en')
+        FROM dim_song
+        """).fetchone()
+    log.info("letras: %d de %d canciones con letra (%.1f %%), %d analizadas, %d en inglés, "
+             "%d sin buscar", found, songs, 100 * found / songs if songs else 0, analyzed,
+             english, pending)
+    if songs and pending == 0 and found / songs < LYRICS_GOAL:
+        diffs.append(f"cobertura de letras {found / songs:.1%}, debajo de la meta de 85 %")
+    missing = 0
+    for uri, lrclib_id in conn.execute(
+            "SELECT spotify_uri, lrclib_id FROM dim_song WHERE lyrics_status = 'found'"):
+        path = RAW_DIR / "lyrics" / f"{uri.rsplit(':', 1)[-1]}.json"
+        if lrclib_id is None or not path.exists():
+            missing += 1
+    if missing:
+        diffs.append(f"{missing} canciones con letra sin su versión en raw/lyrics/")
+    return diffs
+
+
+def check_comments(conn, log) -> list[str]:
+    """Conciliación del crudo de comentarios contra fact_comment."""
+    diffs = []
+    offsets = json.loads(STATE_FILE.read_text(encoding="utf-8")).get("offsets", {}) \
+        if STATE_FILE.exists() else {}
+    video_song, excluded = load_video_songs(conn)
+    expected, not_processed, reasons = set(), 0, {}
+    for path in sorted((RAW_DIR / "comments").glob("*.log")) if (RAW_DIR / "comments").is_dir() else []:
+        upto = offsets.get(path.name, 0)
+        for text, end in new_lines(path, 0):
+            if end > upto:
+                not_processed += 1
+                continue
+            try:
+                c = parse_comment(text)
+            except InvalidLine as e:
+                reasons[e.reason] = reasons.get(e.reason, 0) + 1
+                continue
+            if c["video_id"] not in video_song:
+                reasons["video_sin_cancion"] = reasons.get("video_sin_cancion", 0) + 1
+            elif c["video_id"] in excluded:
+                reasons["cancion_en_ingles"] = reasons.get("cancion_en_ingles", 0) + 1
+            else:
+                expected.add(c["comment_id"])
+    present = {r[0] for r in conn.execute(
+        "SELECT comment_id FROM fact_comment WHERE comment_id = ANY(%s)", (list(expected),))}
+    total, old = conn.execute(
+        "SELECT count(*), count(*) FILTER (WHERE ingested_at < now() - interval '30 days') "
+        "FROM fact_comment").fetchone()
+    log.info("comentarios: %d únicos válidos en el crudo procesado, %d en fact_comment (total %d), "
+             "%d líneas aún sin procesar, descartes por motivo %s", len(expected), len(present),
+             total, not_processed, reasons or "{}")
+    if expected - present:
+        diffs.append(f"{len(expected - present)} comentarios del crudo procesado no están en "
+                     f"fact_comment (ej. {sorted(expected - present)[:3]})")
+    if old:
+        diffs.append(f"{old} filas de fact_comment con más de 30 días de ingeridas")
+    return diffs
+
+
+def check_reaction(conn, log) -> list[str]:
+    """song_week_reaction al día y consistente con fact_comment."""
+    diffs = []
+    stale = conn.execute(STALE_SQL).fetchall()
+    if stale:
+        diffs.append(f"{len(stale)} parejas canción–semana pendientes de recalcular "
+                     "(¿corrió aggregate_week después de comments_processor?)")
+    mismatched = conn.execute(
+        """
+        SELECT count(*) FROM song_week_reaction r
+        JOIN LATERAL (
+            SELECT count(*) AS n FROM fact_comment f
+            JOIN dim_date d ON d.date_key = f.date_key
+            WHERE f.song_key = r.song_key AND NOT f.discarded
+              AND to_char(d.chart_week_end, 'YYYYMMDD')::integer = r.week_key
+        ) c ON true
+        WHERE r.last_ingested_at > now() - interval '28 days' AND c.n <> r.n_comments
+        """).fetchone()[0]
+    pairs, comments = conn.execute(
+        "SELECT count(*), COALESCE(sum(n_comments), 0) FROM song_week_reaction").fetchone()
+    log.info("reacción semanal: %d parejas canción–semana con %d comentarios", pairs, comments)
+    if mismatched:
+        diffs.append(f"{mismatched} parejas con n_comments distinto al de fact_comment")
+    return diffs
+
+
+def check_views(conn, log) -> list[str]:
+    diffs = []
+    counts = []
+    for i in range(1, 8):
+        try:
+            with conn.transaction():
+                counts.append(f"v_p{i}={conn.execute(f'SELECT count(*) FROM v_p{i}').fetchone()[0]}")
+        except psycopg.Error as e:
+            diffs.append(f"v_p{i} no se puede consultar: {e}")
+    log.info("vistas: %s", " ".join(counts))
+    return diffs
+
+
 def main() -> None:
     log = setup_logging(JOB)
     started = time.monotonic()
@@ -236,6 +357,10 @@ def main() -> None:
                 ("5. Puente canción–artista", check_bridge(conn)),
                 ("6. URI de Spotify por canción", check_uris(conn)),
                 ("7. YouTube: cuota y crudo de comentarios sin datos del autor", check_youtube(conn, log)),
+                ("8. Letras: crudo y cobertura", check_lyrics(conn, log)),
+                ("9. Comentarios: crudo = fact_comment", check_comments(conn, log)),
+                ("10. Reacción por canción y semana", check_reaction(conn, log)),
+                ("11. Vistas de las preguntas", check_views(conn, log)),
             ]
     except psycopg.OperationalError as e:
         log.error("No se pudo conectar a PostgreSQL: %s", e)

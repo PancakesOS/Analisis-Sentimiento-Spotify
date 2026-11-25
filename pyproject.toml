@@ -6,4 +6,19 @@ requires-python = ">=3.13"
 dependencies = [
     "confluent-kafka>=2.6",
     "psycopg[binary]>=3.3.8",
+    "pysentimiento>=0.7",
+    "torch>=2.5",
+    "streamlit>=1.40",
+    "scikit-learn>=1.5",
 ]
+
+# PyTorch solo para CPU dentro de Docker (Linux): sin esto, en x86_64 uv
+# bajaría también las librerías de CUDA, varios GB que aquí no se usan.
+# En macOS (para correr las pruebas fuera de Docker) se usa el de PyPI.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

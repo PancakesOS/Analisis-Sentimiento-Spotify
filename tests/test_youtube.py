@@ -96,8 +96,8 @@ class CommentMessageTest(unittest.TestCase):
         "snippet": {
             "channelId": "UCe4LM_eKc9ywRmVuBm5pjQg", "videoId": "wROPn_SFE5s",
             "topLevelComment": {"id": "UgzHhqEQ4ykGI5MsoNN4AaABAg", "snippet": {
-                "videoId": "wROPn_SFE5s", "textOriginal": "wey mi canción!!! 🎉",
-                "textDisplay": "wey mi canción!!! 🎉",
+                "videoId": "wROPn_SFE5s", "textOriginal": "wey mi canción!!!",
+                "textDisplay": "wey mi canción!!!",
                 "authorDisplayName": "@alguien", "authorChannelId": {"value": "UCxyz"},
                 "authorChannelUrl": "http://www.youtube.com/@alguien",
                 "authorProfileImageUrl": "https://yt3.ggpht.com/foto",
@@ -110,7 +110,7 @@ class CommentMessageTest(unittest.TestCase):
     def test_message_has_no_author_data(self):
         msg = comment_message(self.THREAD, "2026-11-21T20:00:00+00:00", "poll")
         self.assertEqual(msg["comment_id"], "UgzHhqEQ4ykGI5MsoNN4AaABAg")
-        self.assertEqual(msg["text_original"], "wey mi canción!!! 🎉")
+        self.assertEqual(msg["text_original"], "wey mi canción!!!")
         self.assertEqual(msg["published_at"], "2026-11-17T02:52:15Z")
         self.assertFalse([k for k in msg if "author" in k.lower()])
         self.assertNotIn("alguien", repr(msg))

@@ -4,7 +4,10 @@ Es un servicio que se repite cada hora (RFC, sección 7 d). En cada ciclo:
 
   1. Elige los videos que toca leer: los del top 50 de la semana más
      reciente, cada hora; los demás videos seguidos, una vez al día. Se
-     saltan los que tienen los comentarios desactivados o ya no existen.
+     saltan los que tienen los comentarios desactivados o ya no existen,
+     y los de canciones con la letra en inglés: quedan fuera del análisis
+     (el modelo de sentimiento es para español y sus videos juntan
+     comentarios de todo el mundo).
   2. Comentarios nuevos: pide commentThreads.list ordenado por fecha, del
      más nuevo al más viejo, hasta llegar a la marca de agua del video
      (video_watermark.last_published_at).
@@ -58,6 +61,7 @@ VIDEOS_SQL = """
     LEFT JOIN fact_chart_week f ON f.song_key = s.song_key
     LEFT JOIN video_watermark w ON w.video_id = s.youtube_video_id
     WHERE s.youtube_video_id IS NOT NULL
+      AND s.lyrics_language IS DISTINCT FROM 'en'   -- fuera del análisis, igual que sus letras
     GROUP BY s.youtube_video_id, w.video_id
     ORDER BY current_rank NULLS LAST, s.youtube_video_id
 """

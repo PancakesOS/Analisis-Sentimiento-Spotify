@@ -15,6 +15,16 @@ Al corregirlo, comments_producer empieza a leer el video nuevo en su
 siguiente ciclo. Los comentarios del video anterior ya no pertenecen a
 ninguna canción, así que comments_processor los descarta (RFC, sección
 7 c: SCD tipo 1 en dim_song).
+
+Medir el criterio de éxito (20 canciones al azar del top 50 vigente;
+pregunta una por una si el video es el oficial, guarda la respuesta en
+video_check y permite corregirlo ahí mismo):
+
+    docker compose exec batch /app/.venv/bin/python -m scripts.review_videos --revisar
+
+Solo el resultado:
+
+    docker compose exec batch /app/.venv/bin/python -m scripts.review_videos --resultado
 """
 
 import argparse
@@ -26,6 +36,19 @@ import psycopg
 from common.jobs import pg_params
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+VIDEO_URL_RE = re.compile(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})")
+TARGET_CORRECT = 0.90
+
+SAMPLE_SQL = """
+    SELECT s.song_key, s.spotify_uri, a.artist_name, s.track_name, s.youtube_video_id,
+           s.video_match, f.rank
+    FROM fact_chart_week f JOIN dim_song s USING (song_key)
+    JOIN dim_artist a ON a.artist_key = s.main_artist_key
+    WHERE f.week_key = (SELECT max(week_key) FROM fact_chart_week) AND f.rank <= 50
+      AND s.youtube_video_id IS NOT NULL
+    ORDER BY md5(s.spotify_uri)
+    LIMIT %s
+"""
 
 
 def list_videos(conn, sample: int) -> None:
@@ -69,16 +92,82 @@ def set_video(conn, uri: str, video_id: str) -> None:
     print(f"Listo: «{row[0]}» ahora usa https://www.youtube.com/watch?v={video_id} (manual)")
 
 
+def parse_video_id(answer: str) -> str | None:
+    """Acepta el id de 11 caracteres o una URL de YouTube; regresa el id o None."""
+    answer = answer.strip()
+    if VIDEO_ID_RE.match(answer):
+        return answer
+    match = VIDEO_URL_RE.search(answer)
+    return match.group(1) if match else None
+
+
+def review(conn, sample: int) -> None:
+    """Pregunta, canción por canción de la muestra, si el video es el oficial."""
+    rows = conn.execute(SAMPLE_SQL, (sample,)).fetchall()
+    print(f"Muestra al azar de {len(rows)} canciones del top 50 vigente. Abre cada enlace y "
+          "responde si es el video oficial\n(o el audio oficial del canal del artista o del sello).\n")
+    for song_key, uri, artist, track, video, match, rank in rows:
+        done = conn.execute("SELECT is_correct FROM video_check WHERE song_key = %s "
+                            "AND youtube_video_id = %s", (song_key, video)).fetchone()
+        if done is not None:
+            print(f"  lugar {rank:>3}  {artist} — {track}: ya revisado "
+                  f"({'correcto' if done[0] else 'incorrecto'})")
+            continue
+        print(f"\n  lugar {rank:>3}  {artist} — {track}   [{match}]")
+        print(f"      https://www.youtube.com/watch?v={video}")
+        while True:
+            answer = input("  ¿Es el oficial? s = sí, n = no, q = salir: ").strip().lower()
+            if answer in ("s", "n", "q"):
+                break
+        if answer == "q":
+            break
+        conn.execute("INSERT INTO video_check (song_key, youtube_video_id, video_match, is_correct) "
+                     "VALUES (%s, %s, %s, %s) ON CONFLICT (song_key, youtube_video_id) DO UPDATE "
+                     "SET is_correct = EXCLUDED.is_correct, checked_at = now()",
+                     (song_key, video, match, answer == "s"))
+        if answer == "n":
+            fix = input("  Pega el enlace o el id del video correcto (Enter para dejarlo así): ")
+            if fix.strip():
+                new_id = parse_video_id(fix)
+                if new_id:
+                    set_video(conn, uri, new_id)
+                else:
+                    print("  No reconocí el enlace; corrígelo después con --set.")
+    show_result(conn)
+
+
+def show_result(conn) -> None:
+    total, correct = conn.execute(
+        "SELECT count(*), count(*) FILTER (WHERE is_correct) FROM video_check").fetchone()
+    if total == 0:
+        print("\nTodavía no hay videos revisados.")
+        return
+    share = correct / total
+    status = "cumple" if share >= TARGET_CORRECT else "no cumple"
+    print(f"\nVideos revisados: {total}; correctos: {correct} ({share * 100:.0f} %). "
+          f"Meta del RFC: {TARGET_CORRECT * 100:.0f} % ({status}).")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Revisión manual de los videos de YouTube")
     parser.add_argument("--set", nargs=2, metavar=("SPOTIFY_URI", "VIDEO_ID"))
     parser.add_argument("--muestra", type=int, default=20)
+    parser.add_argument("--revisar", action="store_true",
+                        help="revisar la muestra una por una y guardar el resultado")
+    parser.add_argument("--resultado", action="store_true", help="solo mostrar el resultado")
     args = parser.parse_args()
     with psycopg.connect(**pg_params(), connect_timeout=10, autocommit=True) as conn:
-        if args.set:
-            set_video(conn, *args.set)
-        else:
-            list_videos(conn, args.muestra)
+        try:
+            if args.set:
+                set_video(conn, *args.set)
+            elif args.revisar:
+                review(conn, args.muestra)
+            elif args.resultado:
+                show_result(conn)
+            else:
+                list_videos(conn, args.muestra)
+        except (KeyboardInterrupt, EOFError):
+            print("\nSalida. Lo revisado ya quedó guardado.")
 
 
 if __name__ == "__main__":
