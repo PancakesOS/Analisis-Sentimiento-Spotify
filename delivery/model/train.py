@@ -258,11 +258,21 @@ def predict_latest(conn, df: pd.DataFrame, run_id: int) -> int:
         prob = model.predict_proba(build_features(latest))[:, 1]
         rows = [(int(latest_week), int(s), run_id, round(float(p), 4))
                 for s, p in zip(latest["song_key"], prob)]
+    # Solo se toca una fila si su predicción cambió: correrlo dos veces con el
+    # mismo modelo deja la tabla idéntica, incluido predicted_at.
     with conn.transaction():
-        conn.execute("DELETE FROM model_prediction WHERE week_key = %s", (latest_week,))
+        conn.execute("DELETE FROM model_prediction WHERE week_key = %s AND song_key <> ALL(%s)",
+                     (latest_week, [r[1] for r in rows]))
         with conn.cursor() as cur:
-            cur.executemany("INSERT INTO model_prediction (week_key, song_key, run_id, prob_up) "
-                            "VALUES (%s, %s, %s, %s)", rows)
+            cur.executemany(
+                """
+                INSERT INTO model_prediction (week_key, song_key, run_id, prob_up)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (week_key, song_key) DO UPDATE
+                SET run_id = EXCLUDED.run_id, prob_up = EXCLUDED.prob_up, predicted_at = now()
+                WHERE (model_prediction.run_id, model_prediction.prob_up)
+                      IS DISTINCT FROM (EXCLUDED.run_id, EXCLUDED.prob_up)
+                """, rows)
     return len(rows)
 
 

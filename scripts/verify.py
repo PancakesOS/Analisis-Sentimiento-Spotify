@@ -35,7 +35,10 @@ los comentarios, el agregado semanal y las vistas de las preguntas.
  10. Agregado semanal: ninguna pareja canción–semana está pendiente de
      recalcular y, mientras sus comentarios sigan en la base, su
      n_comments coincide con fact_comment.
- 11. Las vistas v_p1 a v_p7 existen y se pueden consultar.
+ 11. Las vistas v_p1 a v_p7 y v_business_check existen y se pueden
+     consultar.
+ 12. Capas del almacén: cada tabla y vista está en su esquema (silver,
+     gold o control; ver docs/data_warehouse.md) y no queda nada en public.
 
 Termina con OK o con la lista de diferencias (y código de salida 1).
 """
@@ -324,6 +327,37 @@ def check_views(conn, log) -> list[str]:
     return diffs
 
 
+# Capa de cada tabla y vista (docs/data_warehouse.md). El bronce es la zona
+# cruda, fuera de la base; check_raw (3) y check_comments (9) la concilian.
+LAYERS = {
+    "control": ["etl_loaded_file", "etl_quota_usage", "video_watermark", "sentiment_label",
+                "video_check"],
+    "silver": ["dim_date", "dim_artist", "dim_song", "song_uri", "song_artist",
+               "fact_chart_week", "fact_comment", "fact_video_daily"],
+    "gold": ["song_week_reaction", "model_run", "model_prediction", "v_chart_week", "v_label",
+             "v_song", "v_video_week", "v_model_dataset", "v_song_longevity", "v_business_check"]
+            + [f"v_p{i}" for i in range(1, 8)],
+}
+
+
+def check_layers(conn, log) -> list[str]:
+    """Cada objeto está en la capa que le toca y no queda nada suelto en public."""
+    found = {name: schema for schema, name in conn.execute(
+        "SELECT table_schema, table_name FROM information_schema.tables "
+        "WHERE table_schema IN ('public', 'silver', 'gold', 'control')")}
+    diffs = []
+    for schema, names in LAYERS.items():
+        for name in names:
+            if found.get(name) != schema:
+                diffs.append(f"{name} debería estar en {schema} y está en {found.get(name, '(no existe)')}")
+    extra = sorted(n for n, s in found.items() if s == "public")
+    if extra:
+        diffs.append(f"objetos sueltos en public: {extra}")
+    log.info("capas: %s", " ".join(f"{s}={sum(1 for v in found.values() if v == s)}"
+                                    for s in ("silver", "gold", "control")))
+    return diffs
+
+
 def main() -> None:
     log = setup_logging(JOB)
     started = time.monotonic()
@@ -361,6 +395,7 @@ def main() -> None:
                 ("9. Comentarios: crudo = fact_comment", check_comments(conn, log)),
                 ("10. Reacción por canción y semana", check_reaction(conn, log)),
                 ("11. Vistas de las preguntas", check_views(conn, log)),
+                ("12. Capas del almacén (silver, gold, control)", check_layers(conn, log)),
             ]
     except psycopg.OperationalError as e:
         log.error("No se pudo conectar a PostgreSQL: %s", e)

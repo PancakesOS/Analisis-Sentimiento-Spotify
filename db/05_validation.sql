@@ -13,6 +13,9 @@
 -- del dashboard muestra el resultado.
 -- =====================================================================
 
+SET search_path TO control, silver, gold, public;  -- las tablas de este archivo van a control
+
+
 
 -- ---------------------------------------------------------------------
 -- sentiment_label: un comentario etiquetado a mano.

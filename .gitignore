@@ -2,6 +2,7 @@
 .env
 data/
 logs/
+backups/
 
 # Python
 .venv/

@@ -26,6 +26,9 @@
 -- Se pueden volver a crear sin perder datos: solo son consultas.
 -- =====================================================================
 
+SET search_path TO gold, silver, control, public;   -- las vistas y la función van a gold
+
+
 DROP VIEW IF EXISTS v_business_check, v_p7, v_p6, v_p5, v_p4, v_p3, v_p2, v_p1,
     v_song_longevity, v_model_dataset, v_video_week, v_song, v_label, v_chart_week CASCADE;
 

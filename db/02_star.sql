@@ -7,7 +7,8 @@
 --   Hechos:      fact_chart_week    (canción × semana del chart)
 --                fact_comment       (un comentario principal)
 --                fact_video_daily   (snapshot periódico video × día)
---                song_week_reaction (agregado canción × semana)
+--                song_week_reaction (agregado canción × semana; capa gold)
+--   Todo lo demás vive en la capa silver.
 --
 --   * Todas las dimensiones son SCD tipo 1: un cambio sobrescribe el
 --     valor y actualiza updated_at. La historia del chart y de las
@@ -17,6 +18,10 @@
 --   * Ningún hecho guarda datos del autor de un comentario.
 --   * Ninguna FK lleva ON DELETE CASCADE.
 -- =====================================================================
+
+SET search_path TO silver, gold, control, public;   -- las tablas de este archivo van a silver,
+                                                   -- salvo song_week_reaction, que va a gold
+
 
 
 -- ---------------------------------------------------------------------
@@ -287,7 +292,7 @@ CREATE INDEX IF NOT EXISTS fact_video_daily_song_key_idx ON fact_video_daily (so
 --     con que se calculó. Si llega un comentario más nuevo de la misma
 --     pareja, aggregate_week sabe que debe recalcularla.
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS song_week_reaction (
+CREATE TABLE IF NOT EXISTS gold.song_week_reaction (
     week_key         integer      NOT NULL,
     song_key         integer      NOT NULL,
     n_comments       integer      NOT NULL,

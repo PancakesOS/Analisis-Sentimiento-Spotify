@@ -7,6 +7,9 @@
 -- dashboard las muestre sin abrir el archivo del modelo.
 -- =====================================================================
 
+SET search_path TO gold, silver, control, public;   -- las tablas de este archivo van a gold
+
+
 
 -- ---------------------------------------------------------------------
 -- model_run: un entrenamiento.

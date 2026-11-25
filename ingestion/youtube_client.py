@@ -19,6 +19,7 @@ YouTube se reinicia a medianoche de esa zona (02:00 en la Ciudad de
 México). La API key sale de YOUTUBE_API_KEY y nunca se escribe en un log.
 """
 
+import http.client
 import json
 import os
 import time
@@ -67,6 +68,16 @@ class VideoNotFound(YouTubeError):
 
 class InvalidPageToken(YouTubeError):
     """El pageToken guardado ya no es válido."""
+
+
+class NetworkError(YouTubeError):
+    """No hubo respuesta completa de la API: sin red, sin DNS, conexión cortada o respuesta a medias."""
+
+
+# Fallas de red que vale la pena reintentar. HTTPError también es URLError,
+# pero se atiende antes, porque esa sí es una respuesta de la API.
+TRANSIENT_ERRORS = (urllib.error.URLError, http.client.HTTPException, ConnectionError,
+                    TimeoutError, json.JSONDecodeError)
 
 
 def quota_date(now: datetime | None = None):
@@ -146,12 +157,13 @@ class YouTubeClient:
                     time.sleep(2 ** attempt)
                     continue
                 raise error
-            except (urllib.error.URLError, TimeoutError) as e:
+            except TRANSIENT_ERRORS as e:
                 if attempt < RETRIES:
                     time.sleep(2 ** attempt)
                     continue
-                raise YouTubeError(f"sin respuesta de la API: {self._scrub(str(e))}")
-        raise YouTubeError("sin respuesta de la API")
+                raise NetworkError(f"sin respuesta de la API: {type(e).__name__}: "
+                                   f"{self._scrub(str(e))}") from None
+        raise NetworkError("sin respuesta de la API")
 
     def _scrub(self, text: str) -> str:
         return text.replace(self.api_key, "***") if self.api_key else text

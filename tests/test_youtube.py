@@ -6,8 +6,12 @@ Los resultados de búsqueda imitan la respuesta real de search.list para
     uv run python -m unittest discover -s tests -t .
 """
 
+import http.client
 import unittest
+import urllib.error
+from unittest import mock
 
+from ingestion import youtube_client
 from ingestion.comments_producer import comment_message
 from transform.match import choose_video
 from transform.normalize import compact, search_title
@@ -115,6 +119,31 @@ class CommentMessageTest(unittest.TestCase):
         self.assertFalse([k for k in msg if "author" in k.lower()])
         self.assertNotIn("alguien", repr(msg))
         self.assertNotIn("UCxyz", repr(msg))
+
+
+class TransientErrorTest(unittest.TestCase):
+    """Una respuesta cortada o sin red se reintenta y termina en NetworkError, sin mostrar la key."""
+
+    def client(self):
+        c = youtube_client.YouTubeClient.__new__(youtube_client.YouTubeClient)
+        c.api_key = "CLAVE-SECRETA"
+        c._reserve = lambda method: None
+        return c
+
+    def test_incomplete_read_is_network_error(self):
+        failure = http.client.IncompleteRead(b"x" * 10, 100)
+        with mock.patch("urllib.request.urlopen", side_effect=failure) as urlopen, \
+                mock.patch("time.sleep"):
+            with self.assertRaises(youtube_client.NetworkError):
+                self.client().call("commentThreads.list", videoId="abc")
+        self.assertEqual(urlopen.call_count, youtube_client.RETRIES + 1)
+
+    def test_dns_failure_hides_the_key(self):
+        failure = urllib.error.URLError("Name or service not known key=CLAVE-SECRETA")
+        with mock.patch("urllib.request.urlopen", side_effect=failure), mock.patch("time.sleep"):
+            with self.assertRaises(youtube_client.NetworkError) as ctx:
+                self.client().call("videos.list", id="abc")
+        self.assertNotIn("CLAVE-SECRETA", str(ctx.exception))
 
 
 if __name__ == "__main__":

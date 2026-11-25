@@ -14,6 +14,33 @@
 -- lleva ON DELETE CASCADE: los borrados se hacen de forma explícita.
 -- =====================================================================
 
+-- ---------------------------------------------------------------------
+-- Capas del almacén (ver docs/data_warehouse.md):
+--   bronce   la zona cruda: archivos tal como llegaron, en el volumen raw
+--            (fuera de la base);
+--   silver   (plata) el modelo dimensional limpio, a grano atómico;
+--   gold     (oro) agregados y vistas de negocio que lee el dashboard;
+--   control  el estado de los trabajos y la validación manual.
+-- La base busca las tablas en silver, gold y control (search_path), así
+-- que el código las nombra sin esquema. Cada archivo de db/ fija su
+-- search_path para crear sus tablas en la capa que les toca.
+-- ---------------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS silver;
+CREATE SCHEMA IF NOT EXISTS gold;
+CREATE SCHEMA IF NOT EXISTS control;
+COMMENT ON SCHEMA silver  IS 'Plata: modelo dimensional limpio, deduplicado y conformado, a grano atómico';
+COMMENT ON SCHEMA gold    IS 'Oro: agregados, vistas de negocio y resultados del modelo';
+COMMENT ON SCHEMA control IS 'Estado de los trabajos (archivos cargados, cuota, marcas de agua) y validación manual';
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET search_path TO silver, gold, control, public',
+                   current_database());
+END
+$$;
+
+SET search_path TO control, silver, gold, public;   -- las tablas de este archivo van a control
+
+
 
 -- ---------------------------------------------------------------------
 -- etl_loaded_file: un renglón por cada archivo distinto (por contenido)

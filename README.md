@@ -8,7 +8,7 @@ Flujo de datos de principio a fin que cruza, para cada canción del top semanal 
 
 Sobre las letras y los comentarios calcula el sentimiento y la emoción, y los entrega en un dashboard y un modelo simple para el área de marketing de un sello discográfico.
 
-El diseño está en el RFC, [docs/rfc.md](docs/rfc.md), y el diagrama del flujo en [docs/diagrama_flujo.png](docs/diagrama_flujo.png).
+El diseño está en el RFC, [docs/rfc.md](docs/rfc.md), y el diagrama del flujo en [docs/diagrama_flujo.png](docs/diagrama_flujo.png). El almacén por capas (bronce, plata y oro), el diccionario de datos, la detección de cambios y la carga idempotente están en [docs/data_warehouse.md](docs/data_warehouse.md). Los logs, las pruebas y qué hacer cuando algo falla están en [docs/operacion.md](docs/operacion.md).
 
 ## Estado
 
@@ -21,7 +21,7 @@ Todas las etapas del RFC funcionan de principio a fin. Desde el 21 de noviembre 
 | YouTube | `youtube_client` con control de cuota, `video_finder`, `stats_snapshot`, `comments_producer` + Kafka + `consumer` |
 | Comentarios | `comments_processor` (sentimiento y emoción con pysentimiento) y `aggregate_week` |
 | Entrega | Vistas `v_p1` a `v_p7`, dashboard en Streamlit y modelo de regresión logística |
-| Operación | `retention` (30 días), `scripts/verify.py` (11 revisiones) y pruebas |
+| Operación | `retention` (30 días), `scripts/verify.py` (12 revisiones), `scripts/check_idempotency.py` y pruebas |
 
 ## Cómo correrlo desde cero
 
@@ -125,13 +125,13 @@ Los de la sección 10 del RFC, más el criterio de negocio que se agregó al res
 | Criterio | Cómo se mide | Meta | Valor | ¿Cumple? |
 |---|---|---|---|---|
 | Cobertura de letras | Canciones con letra encontrada ÷ canciones del chart | ≥ 85 % | 99.2 % (658 de 663) | Sí |
-| Video oficial correcto | Revisión manual de 20 canciones del top 50 al azar (`scripts.review_videos --revisar`) | ≥ 90 % | Pendiente de la revisión. La regla eligió sola 75 de 78 videos; 3 quedaron para revisión | Pendiente |
+| Video oficial correcto | Revisión manual de 20 canciones del top 50 al azar (`scripts.review_videos --revisar`) | ≥ 90 % | 90 % (18 de 20) | Sí, justo en la meta |
 | Latencia de comentarios | p95 de `ingested_at − published_at`, comentarios del top 50 publicados el 24 de noviembre | ≤ 2 h | 18.2 h (mediana 6.6 h) | No, por ahora |
 | Sin duplicados | `count(*)` contra `count(DISTINCT comment_id)` y conciliación de `verify.py` | 0 diferencias | 0 (741,376 filas, 741,376 ids) | Sí |
 | Idempotencia | `chart_loader`, `lyrics_processor`, `aggregate_week` y `train` dos veces seguidas; conteos y md5 de `song_week_reaction` | 0 diferencias | 0; la segunda corrida no cambia nada | Sí |
 | Cuota | Máximo diario de `etl_quota_usage` | < 9,000 en carga histórica; ~1,500 en operación | 8,437 (21 nov, carga histórica); 1,385 (23 nov) | Sí |
 | Carga del chart | Duración en `chart_loader.log` | < 10 s por archivo | 54 archivos en 4.35 s (0.08 s cada uno) | Sí |
-| Calidad del sentimiento | Coincidencia con 100 comentarios etiquetados a mano (`scripts.label_sentiment`) | ≥ 70 % | Pendiente del etiquetado | Pendiente |
+| Calidad del sentimiento | Coincidencia con 100 comentarios etiquetados a mano (`scripts.label_sentiment`) | ≥ 70 % | 44 % (kappa de Cohen 0.15); 32 comentarios más se saltaron por otro idioma o por no entenderse | No |
 | Velocidad del sentimiento | Comentarios por segundo en `comments_processor.log` (sentimiento y emoción) | 10,000 en < 15 min | 35 a 54 por segundo en corridas grandes: 10,000 en 3 a 5 min | Sí |
 | Modelo predictivo | AUC en las 3 semanas más recientes, contra el baseline «sube si subió la semana pasada» | AUC ≥ 0.60 y mayor que el baseline | 0.62 contra 0.68 del baseline | No: pasa el 0.60, pero no le gana al baseline |
 | Preguntas respondidas | Vista y página del dashboard por pregunta | 7 de 7 | 7 de 7 | Sí |
@@ -143,7 +143,20 @@ Notas:
 
 - **Latencia.** Hasta el 24 de noviembre, la carga histórica de «SWIM» (BTS) hacía que cada ciclo del poller durara más de 2 horas y que `comments_processor` pasara horas ocupado. Desde que las canciones en inglés quedaron fuera, un ciclo dura unos 20 segundos. A eso se suma que la Mac se duerme: mientras está dormida no se lee nada. Se vuelve a medir con los días siguientes.
 - **Modelo.** Con 1,436 ejemplos de entrenamiento todavía no supera a la regla simple. Lo dejo documentado tal cual: el RFC lo planteó como un extra y el dashboard no depende de él.
+- **Videos.** Los 2 errores de la regla: en «La Formula» eligió el «Video Con Letras» del canal secundario del sello (DEL Records TV) en lugar del «Video Oficial» de DEL Records; en «2+2» eligió el audio del remix en el canal Topic del artista, que no es la versión del chart ni tiene comentarios. Los dos ya están corregidos a mano. En la revisión marqué primero «Cansada» como error y la cambié a un canal de letras de fans; al revisar canal y vistas, el visualizer del canal del sello (Rico o muerto music, 3.4 M de vistas) sí era el oficial, así que la regresé y cuenta como acierto. No cambié la regla con estos casos, para no ajustarla a la misma muestra con que se mide; sería fácil agregar «con letras» como marca de video de letras y preferir el título «Video Oficial» entre los canales que coinciden.
+- **Sentimiento.** El modelo es conservador con lo positivo. Cuando dice «positivo» casi siempre acierta (91 %), pero de los 72 comentarios que etiqueté como positivos solo reconoce 29: 33 los deja como neutros y 10 como negativos (de 68 caracteres en promedio, más largos que los demás; ahí caen los elogios con palabras tristes o groseras). En la práctica, `pct_pos` subestima la reacción positiva. Las comparaciones entre canciones siguen siendo útiles si el sesgo es parejo, pero los porcentajes absolutos no se deben leer al pie de la letra. No ajusté el modelo con estas mismas 100 etiquetas, porque se vería mejor de lo que es; con más etiquetas se podría calibrar el umbral de cada clase.
 - **Criterio de negocio.** Las candidatas suben algo más que el promedio en el año completo, pero en las últimas 12 semanas no. Cuadra con la página 2: la reacción del público por sí sola es una señal débil para anticipar subidas.
+
+## Almacén por capas
+
+| Capa | Dónde | Qué tiene |
+|---|---|---|
+| Bronce | Volumen `raw` (`data/raw/`) | Cada archivo tal como llegó: CSV del chart, JSON de LRCLIB y de YouTube, comentarios de Kafka |
+| Plata | Esquema `silver` | Modelo dimensional limpio y deduplicado: `dim_*`, `song_uri`, `song_artist`, `fact_chart_week`, `fact_comment`, `fact_video_daily` |
+| Oro | Esquema `gold` | `song_week_reaction`, vistas `v_p1` a `v_p7`, `v_business_check`, `model_run` y `model_prediction` |
+| Control | Esquema `control` | Archivos cargados, cuota, marcas de agua y validación manual |
+
+El detalle de cada tabla, cómo se detectan los cambios de cada fuente y por qué cada carga es idempotente está en [docs/data_warehouse.md](docs/data_warehouse.md).
 
 ## Verificación
 
@@ -151,9 +164,13 @@ Notas:
 docker compose ps                                   # los 6 servicios arriba; postgres, kafka y dashboard (healthy)
 docker compose logs postgres | grep ERROR           # vacío
 tail logs/*.log                                     # cada trabajo deja una línea de inicio y otra de fin
-docker compose exec batch /app/.venv/bin/python -m scripts.verify          # termina con OK
-docker compose exec batch /app/.venv/bin/python -m unittest discover -s tests -t .   # pruebas
+docker compose exec batch /app/.venv/bin/python -m scripts.status             # último fin y errores de cada trabajo, según sus logs
+docker compose exec batch /app/.venv/bin/python -m scripts.verify             # 12 revisiones; termina con OK
+docker compose exec batch /app/.venv/bin/python -m scripts.check_idempotency  # corre la carga dos veces y compara; termina con OK
+docker compose exec batch /app/.venv/bin/python -m unittest discover -s tests -t .   # 67 pruebas
 ```
+
+Si algo falla, [docs/operacion.md](docs/operacion.md) tiene, para cada caso (sin internet, cuota agotada, CSV rechazado, video equivocado, base caída, trabajo interrumpido, diferencias en `verify`), cómo se nota, qué lo causa y qué hacer, más el respaldo y la recuperación de la base.
 
 ### Validación manual
 
@@ -237,11 +254,11 @@ Si llegan varios archivos a la vez, se cargan de la semana más vieja a la más 
 ├── .env.example             # variables necesarias, con valores de ejemplo
 ├── .streamlit/config.toml   # tema del dashboard y sin estadísticas de uso
 ├── db/
-│   ├── 01_control.sql       # etl_loaded_file, etl_quota_usage, video_watermark
-│   ├── 02_star.sql          # dim_date (ya llena), dim_artist, dim_song, song_uri, song_artist y las 4 tablas de hechos
-│   ├── 03_views.sql         # vistas v_p1 … v_p7 (una por pregunta) y sus vistas de apoyo
-│   ├── 04_model.sql         # model_run y model_prediction
-│   └── 05_validation.sql    # sentiment_label y video_check (validación manual)
+│   ├── 01_control.sql       # esquemas silver, gold y control; etl_loaded_file, etl_quota_usage, video_watermark
+│   ├── 02_star.sql          # silver: dim_date (ya llena), dim_artist, dim_song, song_uri, song_artist y los hechos; gold: song_week_reaction
+│   ├── 03_views.sql         # gold: vistas v_p1 … v_p7 (una por pregunta), v_business_check y sus vistas de apoyo
+│   ├── 04_model.sql         # gold: model_run y model_prediction
+│   └── 05_validation.sql    # control: sentiment_label y video_check (validación manual)
 ├── common/jobs.py           # log con el formato del RFC, conexión a PostgreSQL y candado por trabajo
 ├── ingestion/
 │   ├── youtube_client.py    # única puerta a la API de YouTube; lleva la cuenta de la cuota
@@ -266,13 +283,15 @@ Si llegan varios archivos a la vez, se cargan de la semana más vieja a la más 
 │   ├── dashboard/           # Streamlit: app.py, ui.py (estilo y animaciones), data.py, state.py y screens/
 │   └── model/train.py       # regresión logística, evaluación contra el baseline y predicciones
 ├── scripts/
-│   ├── verify.py            # conciliación entrada ↔ crudo ↔ base, cobertura, cuota y privacidad; termina con OK
+│   ├── verify.py            # conciliación entrada ↔ crudo ↔ base, cobertura, cuota, privacidad y capas; termina con OK
+│   ├── check_idempotency.py # corre la carga dos veces y compara filas y md5 de cada tabla
+│   ├── status.py            # resume los logs: último fin, errores y trabajos atrasados
 │   ├── review_videos.py     # revisión y corrección manual de los videos
 │   └── label_sentiment.py   # etiquetado a mano de 100 comentarios para validar el sentimiento
 ├── tests/                   # pruebas de normalización, chart, video, letras, comentarios, modelo y validación
 ├── data/                    # ignorada por git: landing/ (CSV descargados a mano)
 ├── logs/                    # ignorada por git: un .log por trabajo
-└── docs/                    # RFC y diagrama
+└── docs/                    # RFC, diagrama, data_warehouse.md (capas, diccionario, cambios, idempotencia) y operacion.md (logs, pruebas, fallas)
 ```
 
 ## Decisiones que se tomaron al construir
@@ -333,6 +352,9 @@ Estos detalles no cambian el diseño del RFC; lo completan. Los voy a pasar al R
 - **`comments_processor` guarda un checkpoint por archivo** (el crudo tiene un archivo por día), y quita del estado los archivos que ya borró `retention`. Antes de analizar un bloque, revisa qué comentarios ya están en la base, para no gastar CPU en duplicados.
 - **Los trabajos de letras, comentarios y modelo también corren cada hora**, por la misma razón que los de YouTube: sin pendientes no hacen nada y no cargan el modelo.
 - **El modelo usa el crecimiento de comentarios en lugar del crecimiento de vistas.** La foto diaria de estadísticas empezó el 20 de noviembre de 2026, así que las semanas de entrenamiento no tienen ese dato. También usa los lugares que subió esta semana y si es debut o reingreso.
+- **Las capas del almacén son esquemas de PostgreSQL** (`silver`, `gold` y `control`), y el bronce es la zona cruda. El RFC tenía la zona cruda y el modelo estrella, pero todo en un solo esquema; el 24 de noviembre lo separé para que las capas se vean en la base. La base busca las tablas en esos esquemas (`search_path`), así que el código no cambió. Ver [docs/data_warehouse.md](docs/data_warehouse.md).
+- **Una respuesta cortada de YouTube se reintenta como falla de red.** `IncompleteRead` y las conexiones cerradas no se trataban como falla de red y tumbaban el ciclo completo del *poller* (8 veces entre el 23 y el 24 de noviembre). Ahora se reintentan y, si siguen, solo se salta ese video. Si 3 videos seguidos no tienen respuesta (sin internet o sin DNS, como pasó esos mismos días), el ciclo se corta en lugar de registrar un error por cada video.
+- **Las predicciones del modelo solo se actualizan si cambian.** Antes se borraban y se volvían a escribir en cada corrida, y `predicted_at` cambiaba aunque la probabilidad fuera la misma; `check_idempotency` lo detectó.
 - **Los resultados del modelo van a la base** (`db/04_model.sql`, un archivo que el RFC no tenía): `model_run` guarda métricas y coeficientes, y `model_prediction` la probabilidad de subir de cada canción de la semana más reciente. Así el dashboard los muestra sin abrir el archivo del modelo.
 - **La validación manual queda en la base** (`db/05_validation.sql`, otro archivo que el RFC no tenía). `sentiment_label` guarda solo el id del comentario, la etiqueta de la persona y la del modelo, sin el texto: así la etiqueta sobrevive cuando `retention` borra el comentario a los 30 días, y el texto nunca se copia a otro lado. `video_check` guarda qué video se revisó y si era el oficial; si se corrige, la métrica sigue midiendo lo que eligió `video_finder`, no el estado corregido.
 - **Umbrales de las vistas:** P2 usa las canciones con 20 comentarios o más en la semana, igual que P1. P4 toma las últimas 12 semanas.

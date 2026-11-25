@@ -41,7 +41,8 @@ from confluent_kafka import Producer
 
 from common.jobs import pg_params, setup_logging
 from ingestion.youtube_client import (DAILY_QUOTA, ApiKeyError, CommentsDisabled, InvalidPageToken,
-                                      QuotaExceeded, VideoNotFound, YouTubeClient, YouTubeError)
+                                      NetworkError, QuotaExceeded, VideoNotFound, YouTubeClient,
+                                      YouTubeError)
 
 JOB = "comments_producer"
 CYCLE_SECONDS = 3600
@@ -50,6 +51,7 @@ BACKFILL_BUDGET = 7_500
 TOP_N = 50
 PAGE_SIZE = 100
 FLUSH_TIMEOUT = 30
+MAX_NETWORK_FAILURES = 3     # videos seguidos sin red: se corta el ciclo en lugar de seguir fallando
 
 VIDEOS_SQL = """
     WITH latest AS (SELECT max(week_key) AS week_key FROM fact_chart_week)
@@ -259,6 +261,7 @@ def run_cycle(log, pg: dict, sink: KafkaSink) -> None:
             if not due:
                 return
             yt = YouTubeClient(pg)
+            network_failures = 0
             for state in due:
                 if stop_requested:
                     break
@@ -266,6 +269,7 @@ def run_cycle(log, pg: dict, sink: KafkaSink) -> None:
                 try:
                     poll_video(yt, sink, conn, state, since, stats)
                     stats["videos"] += 1
+                    network_failures = 0
                 except (CommentsDisabled, VideoNotFound) as e:
                     state["disabled_reason"] = ("comments_disabled" if isinstance(e, CommentsDisabled)
                                                 else "video_not_found")
@@ -279,6 +283,15 @@ def run_cycle(log, pg: dict, sink: KafkaSink) -> None:
                     stats["errores"] += 1
                     log.error("%s; los videos que faltan se leen en el siguiente ciclo", e)
                     break
+                except NetworkError as e:
+                    stats["errores"] += 1
+                    network_failures += 1
+                    log.error("video %s no se leyó completo (la marca de agua no avanza): %s",
+                              state["video_id"], e)
+                    if network_failures >= MAX_NETWORK_FAILURES:
+                        log.error("Sin conexión a la API en %d videos seguidos (¿sin internet?); "
+                                  "los que faltan se leen en el siguiente ciclo", network_failures)
+                        break
                 except (YouTubeError, DeliveryError) as e:
                     stats["errores"] += 1
                     log.error("video %s no se leyó completo (la marca de agua no avanza): %s",

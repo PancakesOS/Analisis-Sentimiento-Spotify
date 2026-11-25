@@ -4,7 +4,7 @@
 
 **Autor:** Francisco Ortega (proyecto individual)
 
-**Versión:** 1.1, 24 de noviembre de 2026 · **Estado:** revisado; los comentarios de la revisión están respondidos e incorporados (ver «Historial de cambios», al final de la sección 1)
+**Versión:** 1.2, 24 de noviembre de 2026 · **Estado:** revisado; los comentarios de la revisión están respondidos e incorporados (ver «Historial de cambios», al final de la sección 1)
 
 ---
 
@@ -50,6 +50,7 @@
   - se agregan limitaciones (comentarios repetidos de una misma persona, sentimiento contra emoción, letras en dos idiomas, público global) y se aclara cómo comparar resultados entre instalaciones (sección 9);
   - se agrega un criterio de éxito de negocio y qué pasa si un criterio no se cumple (sección 10);
   - el plan se ajusta a la fecha de entrega, el lunes 7 de diciembre (sección 9).
+- **Versión 1.2 (24 de noviembre de 2026):** se agrega el manual de operación ([operacion.md](operacion.md)): logs, pruebas, qué hacer con cada falla, y respaldo y recuperación. Además, el almacén se organiza explícitamente en capas: bronce (la zona cruda), plata (esquema `silver`, el modelo dimensional) y oro (esquema `gold`, agregados, vistas y modelo), más un esquema `control`. Se documentan la detección de cambios y la carga idempotente, con una prueba que corre la carga dos veces (sección 7 c y [data_warehouse.md](data_warehouse.md)).
 
 ---
 
@@ -286,6 +287,15 @@ Aquí las columnas de canciones y % de streams son reales (semana del 12 de novi
 
 ### c) Modelo de datos
 
+**Capas del almacén.** Los datos pasan por tres capas; el detalle de cada tabla, la detección de cambios y la idempotencia están en [data_warehouse.md](data_warehouse.md).
+
+| Capa | Dónde | Qué tiene |
+|---|---|---|
+| Bronce | Zona cruda (volumen `raw`) | Cada archivo tal como llegó, sin modificar: CSV del chart, JSON de LRCLIB y de YouTube, y los comentarios que entrega Kafka |
+| Plata | Esquema `silver` | El modelo dimensional a grano atómico: dimensiones, puente y hechos, validados, normalizados, deduplicados y con el sentimiento calculado |
+| Oro | Esquema `gold` | `song_week_reaction`, las vistas de las preguntas (`v_p1` a `v_p7`), `v_business_check` y los resultados del modelo. El dashboard solo lee de aquí. |
+| Control | Esquema `control` | Archivos cargados, cuota, marcas de agua y validación manual |
+
 **Hechos**
 
 | Tabla | Grano | Medidas | Llave |
@@ -409,11 +419,11 @@ Analisis-Sentimiento-Spotify/
 ├── .env.example               # variables necesarias (POSTGRES_*, YOUTUBE_API_KEY) con valores de ejemplo
 ├── .streamlit/config.toml     # tema del dashboard
 ├── db/
-│   ├── 01_control.sql         # etl_loaded_file, etl_quota_usage, video_watermark
-│   ├── 02_star.sql            # dim_date, dim_artist, dim_song, song_uri, song_artist y los hechos
-│   ├── 03_views.sql           # vistas v_p1 … v_p7, v_business_check y sus vistas de apoyo
-│   ├── 04_model.sql           # model_run y model_prediction
-│   └── 05_validation.sql      # sentiment_label y video_check (validación manual)
+│   ├── 01_control.sql         # esquemas silver, gold y control; etl_loaded_file, etl_quota_usage, video_watermark
+│   ├── 02_star.sql            # silver: dim_date, dim_artist, dim_song, song_uri, song_artist y los hechos
+│   ├── 03_views.sql           # gold: vistas v_p1 … v_p7, v_business_check y sus vistas de apoyo
+│   ├── 04_model.sql           # gold: model_run y model_prediction
+│   └── 05_validation.sql      # control: sentiment_label y video_check (validación manual)
 ├── common/jobs.py             # formato del log, conexión a PostgreSQL y candado por trabajo
 ├── ingestion/
 │   ├── youtube_client.py      # única puerta a la API de YouTube; lleva la cuenta de la cuota
@@ -438,7 +448,9 @@ Analisis-Sentimiento-Spotify/
 │   ├── dashboard/             # Streamlit: app.py, ui.py, data.py, state.py y una página por archivo
 │   └── model/train.py         # regresión logística, evaluación y predicciones
 ├── scripts/
-│   ├── verify.py              # conciliación crudo ↔ base, cobertura, cuota y privacidad
+│   ├── verify.py              # conciliación crudo ↔ base, cobertura, cuota, privacidad y capas
+│   ├── check_idempotency.py   # corre la carga dos veces y compara cada tabla
+│   ├── status.py              # resume los logs: último fin, errores y trabajos atrasados
 │   ├── review_videos.py       # revisión manual de los videos
 │   └── label_sentiment.py     # etiquetado manual de comentarios
 ├── tests/                     # pruebas con casos reales (Suzuki, BbY WOW, Tyler, The Creator)
@@ -446,6 +458,8 @@ Analisis-Sentimiento-Spotify/
 ├── logs/                      # ignorada por git: un .log por trabajo
 ├── docs/
 │   ├── rfc.md                 # este documento
+│   ├── data_warehouse.md      # capas, diccionario de datos, detección de cambios e idempotencia
+│   ├── operacion.md           # logs, pruebas, qué hacer cuando algo falla, respaldo
 │   └── diagrama_flujo.png     # diagrama del flujo
 └── README.md                  # cómo correrlo desde cero, verificación, criterios y decisiones
 ```
@@ -488,7 +502,9 @@ Además, `scripts/verify.py` imprime una conciliación y termina con `OK` o con 
 
 - la página «Calidad de los datos» del dashboard, con la antigüedad del último dato de cada fuente;
 - la barra lateral del dashboard, que avisa si Spotify ya publicó un chart que no se ha descargado (la descarga es manual);
-- `scripts/verify.py`.
+- `scripts/verify.py` y `scripts/status.py`, que resume los logs: último fin de cada trabajo, sus errores de las últimas 24 horas y los que van atrasados.
+
+Qué hacer con cada falla (sin internet, cuota agotada, CSV rechazado, base caída, trabajo interrumpido), y cómo respaldar y recuperar la base, está en el manual de operación: [operacion.md](operacion.md).
 
 No hay alertas por correo: sería otra herramienta fuera de las del curso, y para un sistema que corre en mi Mac basta con revisar el dashboard.
 
@@ -650,7 +666,7 @@ La entrega es el **lunes 7 de diciembre**. La construcción avanzó más rápido
 | 1 | `youtube_client`, `video_finder`, `stats_snapshot`, `comments_producer` + Kafka + `consumer`, encendidos hasta la entrega | 21 nov | 22 nov | Hecho | Francisco Ortega |
 | 1 | Letras, sentimiento, processors, agregados, vistas, dashboard y modelo | 22 nov | 23 nov | Hecho | Francisco Ortega |
 | 2 | Revisar el RFC asignado, responder los comentarios recibidos e incorporarlos (versión 1.1) | 23 nov | 24 nov | Hecho | Francisco Ortega |
-| 2 | Validación manual: etiquetar 100 comentarios y revisar 20 videos | 25 nov | 2 dic | Pendiente | Francisco Ortega |
+| 2 | Validación manual: etiquetar 100 comentarios y revisar 20 videos; capas del almacén, manual de operación y prueba de idempotencia | 24 nov | 24 nov | Hecho | Francisco Ortega |
 | 2–3 | Cargar los charts del 19 y 26 de noviembre y del 3 de diciembre; volver a medir los criterios | 27 nov | 4 dic | Pendiente | Francisco Ortega |
 | 3 | Prueba desde un clon limpio, verificación final, README y RFC finales | 5 dic | 6 dic | Pendiente | Francisco Ortega |
 | 3 | Entrega | 7 dic | 7 dic | — | Francisco Ortega |
@@ -666,13 +682,13 @@ El README lleva la misma tabla con los valores al día. Si un criterio no se cum
 | Criterio | Cómo se mide | Valor esperado | Valor del 24 de noviembre |
 |---|---|---|---|
 | Cobertura de letras | Canciones con `lyrics_status = 'found'` ÷ canciones distintas del chart | ≥ 85 % | 99.2 % (658 de 663) |
-| Video oficial correcto | Revisión manual de 20 canciones del top 50 elegidas al azar | ≥ 90 % correctas | Pendiente de la revisión; la regla eligió sola 75 de 78 videos |
+| Video oficial correcto | Revisión manual de 20 canciones del top 50 elegidas al azar | ≥ 90 % correctas | 90 % (18 de 20); los 2 errores ya están corregidos a mano |
 | Latencia de comentarios | p95 de (`ingested_at` en la base − `published_at`), comentarios del top 50 | ≤ 2 h | 18.2 h, por la carga histórica de BTS, que ya quedó fuera; se vuelve a medir |
 | Sin duplicados | `COUNT(*)` contra `COUNT(DISTINCT comment_id)` en `fact_comment`, y la conciliación de `verify.py` | 0 diferencias | 0 |
 | Idempotencia | Correr cada trabajo dos veces seguidas y comparar el conteo y un checksum de cada tabla | 0 diferencias | 0 |
 | Cuota | Máximo diario en `etl_quota_usage` | < 9,000 en carga histórica; ~1,500 en operación normal | 8,437 en carga histórica; 1,385 en operación |
 | Carga del chart | Duración registrada en `chart_loader.log` | < 10 s por archivo | 0.08 s por archivo |
-| Calidad del sentimiento | Coincidencia contra 100 comentarios etiquetados a mano | ≥ 70 % | Pendiente del etiquetado |
+| Calidad del sentimiento | Coincidencia contra 100 comentarios etiquetados a mano | ≥ 70 % | 44 % (kappa 0.15): el modelo acierta 91 % cuando dice «positivo», pero deja como neutros o negativos 43 de 72 positivos |
 | Velocidad del sentimiento | Comentarios por segundo en `comments_processor.log` | 10,000 comentarios en < 15 min | 10,000 en 3 a 5 min |
 | Modelo predictivo | AUC en las 3 últimas semanas, contra el *baseline* "sube si subió la semana pasada" | AUC ≥ 0.60 y mayor que el *baseline* | 0.62 contra 0.68: pasa el 0.60, no le gana al *baseline* |
 | Preguntas respondidas | Cada pregunta P1 a P7 tiene su vista y su página en el dashboard | 7 de 7 | 7 de 7 |

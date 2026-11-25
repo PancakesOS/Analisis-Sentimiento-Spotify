@@ -95,7 +95,10 @@ ui.callout("<b>Cómo leerlo.</b> Un comentario cuenta como positivo, neutro o ne
            "modelo de sentimiento (RoBERTuito, entrenado con tweets en español, que entiende jerga "
            "y emojis). La emoción dominante es la más frecuente sin contar los comentarios sin "
            "emoción clara. El público que comenta en YouTube no es necesariamente el que escucha "
-           "en Spotify.")
+           "en Spotify.<br><br><b>Los positivos son un piso.</b> En la validación manual (100 "
+           "comentarios etiquetados a mano) el modelo acertó 91 % de las veces que dijo «positivo», "
+           "pero dejó como neutros o negativos 6 de cada 10 elogios. Sirve más para comparar "
+           "canciones entre sí que para leer el porcentaje al pie de la letra.")
 
 if not pd.isna(best["avg_score"]):
     ui.footer(f"Semana del {ui.week_label(week_end)} · {len(df)} canciones · "
